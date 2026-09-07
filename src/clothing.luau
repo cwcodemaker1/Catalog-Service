@@ -657,8 +657,8 @@ local function GetMeshScale(
 	MeshData
 )
 	if
-		MeshData.meshSize
-		and HandleData.size
+		type(MeshData.meshSize) == "table"
+		and type(HandleData.size) == "table"
 	then
 		local MeshSize =
 			ToVector3(
@@ -686,13 +686,6 @@ local function GetMeshScale(
 	if MeshData.scale then
 		return ToVector3(
 			MeshData.scale,
-			Vector3.new(1, 1, 1)
-		)
-	end
-
-	if HandleData.size then
-		return ToVector3(
-			HandleData.size,
 			Vector3.new(1, 1, 1)
 		)
 	end
