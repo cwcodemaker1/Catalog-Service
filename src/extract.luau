@@ -35,7 +35,8 @@ local function Base64Encode(Data)
 
 					for Index = 1, 6 do
 						if Bits:sub(Index, Index) == "1" then
-							Value += 2 ^ (6 - Index)
+							Value +=
+								2 ^ (6 - Index)
 						end
 					end
 
@@ -53,10 +54,7 @@ local function Base64Encode(Data)
 	)
 end
 
-local function GetProperty(
-	Object,
-	Property
-)
+local function GetProperty(Object, Property)
 	local Success, Value =
 		pcall(function()
 			return Object[Property]
@@ -100,7 +98,6 @@ end
 local BodyDefinitions = {
 	Head = {
 		r6 = "Head",
-
 		r15 = {
 			"Head"
 		}
@@ -108,7 +105,6 @@ local BodyDefinitions = {
 
 	Torso = {
 		r6 = "Torso",
-
 		r15 = {
 			"UpperTorso",
 			"LowerTorso"
@@ -117,7 +113,6 @@ local BodyDefinitions = {
 
 	LeftArm = {
 		r6 = "Left Arm",
-
 		r15 = {
 			"LeftUpperArm",
 			"LeftLowerArm",
@@ -127,7 +122,6 @@ local BodyDefinitions = {
 
 	RightArm = {
 		r6 = "Right Arm",
-
 		r15 = {
 			"RightUpperArm",
 			"RightLowerArm",
@@ -137,7 +131,6 @@ local BodyDefinitions = {
 
 	LeftLeg = {
 		r6 = "Left Leg",
-
 		r15 = {
 			"LeftUpperLeg",
 			"LeftLowerLeg",
@@ -147,7 +140,6 @@ local BodyDefinitions = {
 
 	RightLeg = {
 		r6 = "Right Leg",
-
 		r15 = {
 			"RightUpperLeg",
 			"RightLowerLeg",
@@ -157,7 +149,6 @@ local BodyDefinitions = {
 
 	Root = {
 		r6 = "HumanoidRootPart",
-
 		r15 = {
 			"HumanoidRootPart"
 		}
@@ -378,6 +369,40 @@ local function GetSlot(Name)
 	return nil
 end
 
+local function DefaultR6Target(
+	SourcePart,
+	AttachmentName
+)
+	local AttachmentDefinition =
+		AttachmentTargets[
+			AttachmentName
+		]
+
+	if AttachmentDefinition then
+		return AttachmentDefinition.r6
+	end
+
+	local Definition =
+		GetPartDefinition(
+			SourcePart
+		)
+
+	if not Definition then
+		return SourcePart
+	end
+
+	local BodyDefinition =
+		BodyDefinitions[
+			Definition.slot
+		]
+
+	if BodyDefinition then
+		return BodyDefinition.r6
+	end
+
+	return SourcePart
+end
+
 local function DefaultR15Target(
 	SourcePart,
 	AttachmentName
@@ -392,7 +417,9 @@ local function DefaultR15Target(
 	end
 
 	local Definition =
-		GetPartDefinition(SourcePart)
+		GetPartDefinition(
+			SourcePart
+		)
 
 	if not Definition then
 		return SourcePart
@@ -402,9 +429,13 @@ local function DefaultR15Target(
 		return "Head"
 	end
 
+	if Definition.slot == "Root" then
+		return "HumanoidRootPart"
+	end
+
 	if Definition.slot == "Torso" then
 		if
-			SourcePart == "LowerTorso"
+			Definition.segment == "Lower"
 			or (
 				AttachmentName
 				and AttachmentName:find(
@@ -426,7 +457,9 @@ local function DefaultR15Target(
 
 	if Definition.slot == "LeftArm" then
 		if
-			AttachmentName == "LeftGripAttachment"
+			Definition.segment == "End"
+			or AttachmentName
+				== "LeftGripAttachment"
 		then
 			return "LeftHand"
 		end
@@ -435,16 +468,14 @@ local function DefaultR15Target(
 			return "LeftLowerArm"
 		end
 
-		if Definition.segment == "End" then
-			return "LeftHand"
-		end
-
 		return "LeftUpperArm"
 	end
 
 	if Definition.slot == "RightArm" then
 		if
-			AttachmentName == "RightGripAttachment"
+			Definition.segment == "End"
+			or AttachmentName
+				== "RightGripAttachment"
 		then
 			return "RightHand"
 		end
@@ -453,16 +484,14 @@ local function DefaultR15Target(
 			return "RightLowerArm"
 		end
 
-		if Definition.segment == "End" then
-			return "RightHand"
-		end
-
 		return "RightUpperArm"
 	end
 
 	if Definition.slot == "LeftLeg" then
 		if
-			AttachmentName == "LeftFootAttachment"
+			Definition.segment == "End"
+			or AttachmentName
+				== "LeftFootAttachment"
 		then
 			return "LeftFoot"
 		end
@@ -471,16 +500,14 @@ local function DefaultR15Target(
 			return "LeftLowerLeg"
 		end
 
-		if Definition.segment == "End" then
-			return "LeftFoot"
-		end
-
 		return "LeftUpperLeg"
 	end
 
 	if Definition.slot == "RightLeg" then
 		if
-			AttachmentName == "RightFootAttachment"
+			Definition.segment == "End"
+			or AttachmentName
+				== "RightFootAttachment"
 		then
 			return "RightFoot"
 		end
@@ -489,47 +516,7 @@ local function DefaultR15Target(
 			return "RightLowerLeg"
 		end
 
-		if Definition.segment == "End" then
-			return "RightFoot"
-		end
-
 		return "RightUpperLeg"
-	end
-
-	if Definition.slot == "Root" then
-		return "HumanoidRootPart"
-	end
-
-	return SourcePart
-end
-
-local function DefaultR6Target(
-	SourcePart,
-	AttachmentName
-)
-	local AttachmentDefinition =
-		AttachmentTargets[
-			AttachmentName
-		]
-
-	if AttachmentDefinition then
-		return AttachmentDefinition.r6
-	end
-
-	local Definition =
-		GetPartDefinition(SourcePart)
-
-	if not Definition then
-		return SourcePart
-	end
-
-	local BodyDefinition =
-		BodyDefinitions[
-			Definition.slot
-		]
-
-	if BodyDefinition then
-		return BodyDefinition.r6
 	end
 
 	return SourcePart
@@ -540,7 +527,28 @@ local function ExtractAttachment(
 	SourcePart
 )
 	return {
-		name = Attachment.Name,
+		name =
+			Attachment.Name,
+
+		sourcePart =
+			SourcePart,
+
+		bodySlot =
+			GetSlot(
+				SourcePart
+			),
+
+		targetR6 =
+			DefaultR6Target(
+				SourcePart,
+				Attachment.Name
+			),
+
+		targetR15 =
+			DefaultR15Target(
+				SourcePart,
+				Attachment.Name
+			),
 
 		cframe =
 			CFrameToTable(
@@ -555,24 +563,6 @@ local function ExtractAttachment(
 		orientation =
 			VectorToTable(
 				Attachment.Orientation
-			),
-
-		sourcePart =
-			SourcePart,
-
-		bodySlot =
-			GetSlot(SourcePart),
-
-		targetR6 =
-			DefaultR6Target(
-				SourcePart,
-				Attachment.Name
-			),
-
-		targetR15 =
-			DefaultR15Target(
-				SourcePart,
-				Attachment.Name
 			)
 	}
 end
@@ -613,19 +603,16 @@ local function ExtractSurfaceAppearance(
 	end
 
 	local Data = {
-		name = Surface.Name
+		name =
+			Surface.Name
 	}
 
-	local StringProperties = {
+	for _, Property in ipairs({
 		"ColorMap",
 		"MetalnessMap",
 		"NormalMap",
 		"RoughnessMap"
-	}
-
-	for _, Property in ipairs(
-		StringProperties
-	) do
+	}) do
 		local Value =
 			GetProperty(
 				Surface,
@@ -633,7 +620,8 @@ local function ExtractSurfaceAppearance(
 			)
 
 		if type(Value) == "string" then
-			Data[Property] = Value
+			Data[Property] =
+				Value
 		end
 	end
 
@@ -664,23 +652,14 @@ local function ExtractWrapLayer(
 	end
 
 	local Data = {
-		name = Wrap.Name
+		name =
+			Wrap.Name
 	}
 
-	local StringProperties = {
+	for _, Property in ipairs({
 		"CageMeshId",
 		"ReferenceMeshId"
-	}
-
-	local NumberProperties = {
-		"Order",
-		"Puffiness",
-		"ShrinkFactor"
-	}
-
-	for _, Property in ipairs(
-		StringProperties
-	) do
+	}) do
 		local Value =
 			GetProperty(
 				Wrap,
@@ -688,13 +667,16 @@ local function ExtractWrapLayer(
 			)
 
 		if type(Value) == "string" then
-			Data[Property] = Value
+			Data[Property] =
+				Value
 		end
 	end
 
-	for _, Property in ipairs(
-		NumberProperties
-	) do
+	for _, Property in ipairs({
+		"Order",
+		"Puffiness",
+		"ShrinkFactor"
+	}) do
 		local Value =
 			GetProperty(
 				Wrap,
@@ -702,19 +684,16 @@ local function ExtractWrapLayer(
 			)
 
 		if type(Value) == "number" then
-			Data[Property] = Value
+			Data[Property] =
+				Value
 		end
 	end
 
-	local CFrameProperties = {
+	for _, Property in ipairs({
 		"CageOrigin",
 		"ImportOrigin",
 		"ReferenceOrigin"
-	}
-
-	for _, Property in ipairs(
-		CFrameProperties
-	) do
+	}) do
 		local Value =
 			GetProperty(
 				Wrap,
@@ -723,7 +702,9 @@ local function ExtractWrapLayer(
 
 		if typeof(Value) == "CFrame" then
 			Data[Property] =
-				CFrameToTable(Value)
+				CFrameToTable(
+					Value
+				)
 		end
 	end
 
@@ -743,7 +724,8 @@ local function ExtractWrapTarget(
 	end
 
 	local Data = {
-		name = Wrap.Name
+		name =
+			Wrap.Name
 	}
 
 	local CageMeshId =
@@ -757,30 +739,22 @@ local function ExtractWrapTarget(
 			CageMeshId
 	end
 
-	local CageOrigin =
-		GetProperty(
-			Wrap,
-			"CageOrigin"
-		)
-
-	if typeof(CageOrigin) == "CFrame" then
-		Data.CageOrigin =
-			CFrameToTable(
-				CageOrigin
+	for _, Property in ipairs({
+		"CageOrigin",
+		"ImportOrigin"
+	}) do
+		local Value =
+			GetProperty(
+				Wrap,
+				Property
 			)
-	end
 
-	local ImportOrigin =
-		GetProperty(
-			Wrap,
-			"ImportOrigin"
-		)
-
-	if typeof(ImportOrigin) == "CFrame" then
-		Data.ImportOrigin =
-			CFrameToTable(
-				ImportOrigin
-			)
+		if typeof(Value) == "CFrame" then
+			Data[Property] =
+				CFrameToTable(
+					Value
+				)
+		end
 	end
 
 	return Data
@@ -901,14 +875,10 @@ local function ExtractMesh(BasePart)
 end
 
 local function GetAssetId(Object)
-	local Properties = {
+	for _, Property in ipairs({
 		"SourceAssetId",
 		"AssetId"
-	}
-
-	for _, Property in ipairs(
-		Properties
-	) do
+	}) do
 		local Value =
 			GetProperty(
 				Object,
@@ -928,8 +898,11 @@ end
 
 local function ExtractJoint(Object)
 	local Data = {
-		name = Object.Name,
-		className = Object.ClassName,
+		name =
+			Object.Name,
+
+		className =
+			Object.ClassName,
 
 		parent =
 			Object.Parent
@@ -1230,54 +1203,6 @@ local function ExtractBodyPart(
 	return Data
 end
 
-local function ExtractCharacterMeshes(
-	Character
-)
-	local Result = {}
-
-	for _, Object in ipairs(
-		Character:GetChildren()
-	) do
-		if Object:IsA("CharacterMesh") then
-			local Data = {
-				name =
-					Object.Name,
-
-				bodyPart =
-					Object.BodyPart.Name
-			}
-
-			local Properties = {
-				"MeshId",
-				"BaseTextureId",
-				"OverlayTextureId"
-			}
-
-			for _, Property in ipairs(
-				Properties
-			) do
-				local Value =
-					GetProperty(
-						Object,
-						Property
-					)
-
-				if Value ~= nil then
-					Data[Property] =
-						Value
-				end
-			end
-
-			table.insert(
-				Result,
-				Data
-			)
-		end
-	end
-
-	return Result
-end
-
 local function ExtractBodyMap(
 	Character,
 	Humanoid
@@ -1349,6 +1274,50 @@ local function ExtractBodyMap(
 	return Map
 end
 
+local function ExtractCharacterMeshes(
+	Character
+)
+	local Result = {}
+
+	for _, Object in ipairs(
+		Character:GetChildren()
+	) do
+		if Object:IsA("CharacterMesh") then
+			local Data = {
+				name =
+					Object.Name,
+
+				bodyPart =
+					Object.BodyPart.Name
+			}
+
+			for _, Property in ipairs({
+				"MeshId",
+				"BaseTextureId",
+				"OverlayTextureId"
+			}) do
+				local Value =
+					GetProperty(
+						Object,
+						Property
+					)
+
+				if Value ~= nil then
+					Data[Property] =
+						Value
+				end
+			end
+
+			table.insert(
+				Result,
+				Data
+			)
+		end
+	end
+
+	return Result
+end
+
 local function ExtractJointMap(
 	Character
 )
@@ -1360,6 +1329,7 @@ local function ExtractJointMap(
 		if
 			Object:IsA("Motor6D")
 			or Object:IsA("Weld")
+			or Object:IsA("WeldConstraint")
 		then
 			table.insert(
 				Result,
@@ -1581,38 +1551,352 @@ local function ExtractPlayingAnimations(
 	return Result
 end
 
-local ScaleNames = {
-	"BodyHeightScale",
-	"BodyWidthScale",
-	"BodyDepthScale",
-	"HeadScale",
-	"BodyTypeScale",
-	"BodyProportionScale"
-}
-
-local function ExtractScales(
+local function ExtractScaleValues(
 	Humanoid
 )
 	local Result = {}
 
-	for _, Name in ipairs(
-		ScaleNames
+	for _, Object in ipairs(
+		Humanoid:GetChildren()
 	) do
-		local Value =
-			Humanoid:FindFirstChild(
-				Name
-			)
-
 		if
-			Value
-			and Value:IsA("NumberValue")
+			Object:IsA("NumberValue")
+			and Object.Name:match(
+				"Scale$"
+			)
 		then
-			Result[Name] =
-				Value.Value
+			Result[Object.Name] =
+				Object.Value
+		end
+	end
+
+	local KnownNames = {
+		"BodyHeightScale",
+		"BodyWidthScale",
+		"BodyDepthScale",
+		"HeadScale",
+		"BodyTypeScale",
+		"BodyProportionScale"
+	}
+
+	for _, Name in ipairs(
+		KnownNames
+	) do
+		if Result[Name] == nil then
+			local Value =
+				Humanoid:FindFirstChild(
+					Name
+				)
+
+			if
+				Value
+				and Value:IsA(
+					"NumberValue"
+				)
+			then
+				Result[Name] =
+					Value.Value
+			end
 		end
 	end
 
 	return Result
+end
+
+local function CalculateBodyBounds(
+	Character
+)
+	local Root =
+		Character:FindFirstChild(
+			"HumanoidRootPart"
+		)
+
+	if
+		not Root
+		or not Root:IsA("BasePart")
+	then
+		return nil
+	end
+
+	local MinX = math.huge
+	local MinY = math.huge
+	local MinZ = math.huge
+
+	local MaxX = -math.huge
+	local MaxY = -math.huge
+	local MaxZ = -math.huge
+
+	local Found = false
+
+	for _, Part in ipairs(
+		Character:GetChildren()
+	) do
+		if
+			Part:IsA("BasePart")
+			and Part ~= Root
+		then
+			local Definition =
+				GetPartDefinition(
+					Part.Name
+				)
+
+			if Definition then
+				local Half =
+					Part.Size * 0.5
+
+				for X = -1, 1, 2 do
+					for Y = -1, 1, 2 do
+						for Z = -1, 1, 2 do
+							local WorldPoint =
+								Part.CFrame
+								* Vector3.new(
+									Half.X * X,
+									Half.Y * Y,
+									Half.Z * Z
+								)
+
+							local LocalPoint =
+								Root.CFrame:
+									PointToObjectSpace(
+										WorldPoint
+									)
+
+							MinX =
+								math.min(
+									MinX,
+									LocalPoint.X
+								)
+
+							MinY =
+								math.min(
+									MinY,
+									LocalPoint.Y
+								)
+
+							MinZ =
+								math.min(
+									MinZ,
+									LocalPoint.Z
+								)
+
+							MaxX =
+								math.max(
+									MaxX,
+									LocalPoint.X
+								)
+
+							MaxY =
+								math.max(
+									MaxY,
+									LocalPoint.Y
+								)
+
+							MaxZ =
+								math.max(
+									MaxZ,
+									LocalPoint.Z
+								)
+
+							Found = true
+						end
+					end
+				end
+			end
+		end
+	end
+
+	if not Found then
+		return nil
+	end
+
+	local Size =
+		Vector3.new(
+			MaxX - MinX,
+			MaxY - MinY,
+			MaxZ - MinZ
+		)
+
+	local Center =
+		Vector3.new(
+			(MinX + MaxX) * 0.5,
+			(MinY + MaxY) * 0.5,
+			(MinZ + MaxZ) * 0.5
+		)
+
+	return {
+		width =
+			Size.X,
+
+		height =
+			Size.Y,
+
+		depth =
+			Size.Z,
+
+		size =
+			VectorToTable(
+				Size
+			),
+
+		centerOffset =
+			VectorToTable(
+				Center
+			),
+
+		min =
+			{
+				MinX,
+				MinY,
+				MinZ
+			},
+
+		max =
+			{
+				MaxX,
+				MaxY,
+				MaxZ
+			}
+	}
+end
+
+local function CalculateFullBounds(
+	Character
+)
+	local Success, BoxCFrame, BoxSize =
+		pcall(function()
+			local CFrameValue,
+				SizeValue =
+				Character:GetBoundingBox()
+
+			return
+				CFrameValue,
+				SizeValue
+		end)
+
+	if
+		not Success
+		or typeof(BoxCFrame)
+			~= "CFrame"
+		or typeof(BoxSize)
+			~= "Vector3"
+	then
+		return nil
+	end
+
+	return {
+		width =
+			BoxSize.X,
+
+		height =
+			BoxSize.Y,
+
+		depth =
+			BoxSize.Z,
+
+		size =
+			VectorToTable(
+				BoxSize
+			),
+
+		cframe =
+			CFrameToTable(
+				BoxCFrame
+			)
+	}
+end
+
+local function ExtractSizeProfile(
+	Character,
+	Humanoid
+)
+	local Profile = {
+		rigType =
+			Humanoid.RigType.Name,
+
+		scales =
+			ExtractScaleValues(
+				Humanoid
+			),
+
+		hipHeight =
+			Humanoid.HipHeight,
+
+		bodyBounds =
+			CalculateBodyBounds(
+				Character
+			),
+
+		fullCharacterBounds =
+			CalculateFullBounds(
+				Character
+			)
+	}
+
+	local AutomaticScalingEnabled =
+		GetProperty(
+			Humanoid,
+			"AutomaticScalingEnabled"
+		)
+
+	if AutomaticScalingEnabled ~= nil then
+		Profile.automaticScalingEnabled =
+			AutomaticScalingEnabled
+	end
+
+	local Root =
+		Character:FindFirstChild(
+			"HumanoidRootPart"
+		)
+
+	if
+		Root
+		and Root:IsA("BasePart")
+	then
+		Profile.rootPartSize =
+			VectorToTable(
+				Root.Size
+			)
+	end
+
+	local ModelScale
+
+	local Success =
+		pcall(function()
+			ModelScale =
+				Character:GetScale()
+		end)
+
+	if
+		Success
+		and type(ModelScale)
+			== "number"
+	then
+		Profile.modelScale =
+			ModelScale
+	end
+
+	local Scales =
+		Profile.scales
+
+	Profile.heightScale =
+		Scales.BodyHeightScale
+
+	Profile.widthScale =
+		Scales.BodyWidthScale
+
+	Profile.depthScale =
+		Scales.BodyDepthScale
+
+	Profile.headScale =
+		Scales.HeadScale
+
+	Profile.bodyTypeScale =
+		Scales.BodyTypeScale
+
+	Profile.bodyProportionScale =
+		Scales.BodyProportionScale
+
+	return Profile
 end
 
 local function ExtractHumanoid(
@@ -1656,7 +1940,7 @@ local function ExtractHumanoid(
 			Humanoid.DisplayName,
 
 		scales =
-			ExtractScales(
+			ExtractScaleValues(
 				Humanoid
 			)
 	}
@@ -1680,7 +1964,8 @@ local function ExtractCharacter()
 	end
 
 	local Avatar = {
-		version = 3,
+		version =
+			4,
 
 		source =
 			"character",
@@ -1690,6 +1975,12 @@ local function ExtractCharacter()
 
 		name =
 			Character.Name,
+
+		sizeProfile =
+			ExtractSizeProfile(
+				Character,
+				Humanoid
+			),
 
 		bodyMap =
 			ExtractBodyMap(
