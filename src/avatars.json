@@ -2024,7 +2024,13 @@
           "animationId": "rbxassetid://130005285293698",
           "timePosition": 0.6749995946884155
         }
-      ]
+      ],
+      "bodyBundle": {
+        "id": 240721438120927,
+        "name": "R6 Four Arms",
+        "url": "https://www.roblox.com/bundles/240721438120927/R6-Four-Arms"
+      },
+      "bodyBundleId": 240721438120927
     }
   }
 }
