@@ -1,2084 +1,2903 @@
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
-local CoreGui = game:GetService("CoreGui")
+local AssetService = game:GetService("AssetService")
 
 local Player = Players.LocalPlayer
+local Environment = getgenv and getgenv() or _G
 
 local Base64Chars =
 	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
-local function Base64Encode(Data)
-	return (
-		(Data:gsub(".", function(Character)
-			local Byte = Character:byte()
-			local Bits = ""
+local JSON_URLS = {
+	"https://raw.githubusercontent.com/cwcodemaker1/Catalog-Service/main/avatars.json",
+	"https://raw.githubusercontent.com/cwcodemaker1/Catalog-Service/main/src/avatars.json"
+}
 
-			for Index = 8, 1, -1 do
-				Bits ..=
-					Byte % 2 ^ Index
-						- Byte % 2 ^ (Index - 1)
-						> 0
-					and "1"
-					or "0"
-			end
+local function Base64Decode(Data)
+	Data = tostring(Data or "")
+	Data = Data:gsub("[^" .. Base64Chars .. "=]", "")
 
-			return Bits
-		end) .. "0000")
-			:gsub(
-				"%d%d%d?%d?%d?%d?",
-				function(Bits)
-					if #Bits < 6 then
-						return ""
-					end
+	local Output = {}
+	local Buffer = 0
+	local Bits = 0
 
-					local Value = 0
+	for Index = 1, #Data do
+		local Character = Data:sub(Index, Index)
 
-					for Index = 1, 6 do
-						if Bits:sub(Index, Index) == "1" then
-							Value += 2 ^ (6 - Index)
-						end
-					end
+		if Character == "=" then
+			break
+		end
 
-					return Base64Chars:sub(
-						Value + 1,
-						Value + 1
-					)
-				end
+		local Position =
+			Base64Chars:find(
+				Character,
+				1,
+				true
 			)
-			.. ({
-				"",
-				"==",
-				"="
-			})[#Data % 3 + 1]
+
+		if Position then
+			local Value =
+				Position - 1
+
+			Buffer =
+				bit32.bor(
+					bit32.lshift(
+						Buffer,
+						6
+					),
+					Value
+				)
+
+			Bits += 6
+
+			while Bits >= 8 do
+				Bits -= 8
+
+				local Byte =
+					bit32.band(
+						bit32.rshift(
+							Buffer,
+							Bits
+						),
+						255
+					)
+
+				Output[#Output + 1] =
+					string.char(
+						Byte
+					)
+
+				if Bits > 0 then
+					Buffer =
+						bit32.band(
+							Buffer,
+							2 ^ Bits - 1
+						)
+				else
+					Buffer = 0
+				end
+			end
+		end
+	end
+
+	return table.concat(
+		Output
 	)
 end
 
-local function GetProperty(
-	Object,
-	Property
-)
-	local Success, Value =
+local function DecodeObject(Data)
+	if type(Data) ~= "string" then
+		return nil
+	end
+
+	local Success, Result =
 		pcall(function()
-			return Object[Property]
+			return HttpService:JSONDecode(
+				Base64Decode(
+					Data
+				)
+			)
 		end)
 
 	if Success then
-		return Value
+		return Result
 	end
 
 	return nil
 end
 
-local function CFrameToTable(Value)
-	return {
-		Value:GetComponents()
-	}
-end
+local function ToVector3(
+	Data,
+	Default
+)
+	Default =
+		Default
+		or Vector3.zero
 
-local function VectorToTable(Value)
-	return {
-		Value.X,
-		Value.Y,
-		Value.Z
-	}
-end
+	if type(Data) ~= "table" then
+		return Default
+	end
 
-local function ColorToTable(Value)
-	return {
-		Value.R,
-		Value.G,
-		Value.B
-	}
-end
+	return Vector3.new(
+		tonumber(Data[1])
+			or Default.X,
 
-local function EncodeJSON(Data)
-	return Base64Encode(
-		HttpService:JSONEncode(Data)
+		tonumber(Data[2])
+			or Default.Y,
+
+		tonumber(Data[3])
+			or Default.Z
 	)
 end
 
-local BodyDefinitions = {
-	Head = {
-		r6 = "Head",
+local function ToColor3(Data)
+	if type(Data) ~= "table" then
+		return Color3.new(
+			1,
+			1,
+			1
+		)
+	end
 
-		r15 = {
-			"Head"
-		}
-	},
+	return Color3.new(
+		tonumber(Data[1])
+			or 1,
 
-	Torso = {
-		r6 = "Torso",
+		tonumber(Data[2])
+			or 1,
 
-		r15 = {
-			"UpperTorso",
-			"LowerTorso"
-		}
-	},
-
-	LeftArm = {
-		r6 = "Left Arm",
-
-		r15 = {
-			"LeftUpperArm",
-			"LeftLowerArm",
-			"LeftHand"
-		}
-	},
-
-	RightArm = {
-		r6 = "Right Arm",
-
-		r15 = {
-			"RightUpperArm",
-			"RightLowerArm",
-			"RightHand"
-		}
-	},
-
-	LeftLeg = {
-		r6 = "Left Leg",
-
-		r15 = {
-			"LeftUpperLeg",
-			"LeftLowerLeg",
-			"LeftFoot"
-		}
-	},
-
-	RightLeg = {
-		r6 = "Right Leg",
-
-		r15 = {
-			"RightUpperLeg",
-			"RightLowerLeg",
-			"RightFoot"
-		}
-	},
-
-	Root = {
-		r6 = "HumanoidRootPart",
-
-		r15 = {
-			"HumanoidRootPart"
-		}
-	}
-}
-
-local PartDefinitions = {
-	Head = {
-		slot = "Head",
-		segment = "Whole"
-	},
-
-	Torso = {
-		slot = "Torso",
-		segment = "Whole"
-	},
-
-	["Left Arm"] = {
-		slot = "LeftArm",
-		segment = "Whole"
-	},
-
-	["Right Arm"] = {
-		slot = "RightArm",
-		segment = "Whole"
-	},
-
-	["Left Leg"] = {
-		slot = "LeftLeg",
-		segment = "Whole"
-	},
-
-	["Right Leg"] = {
-		slot = "RightLeg",
-		segment = "Whole"
-	},
-
-	HumanoidRootPart = {
-		slot = "Root",
-		segment = "Whole"
-	},
-
-	UpperTorso = {
-		slot = "Torso",
-		segment = "Upper"
-	},
-
-	LowerTorso = {
-		slot = "Torso",
-		segment = "Lower"
-	},
-
-	LeftUpperArm = {
-		slot = "LeftArm",
-		segment = "Upper"
-	},
-
-	LeftLowerArm = {
-		slot = "LeftArm",
-		segment = "Lower"
-	},
-
-	LeftHand = {
-		slot = "LeftArm",
-		segment = "End"
-	},
-
-	RightUpperArm = {
-		slot = "RightArm",
-		segment = "Upper"
-	},
-
-	RightLowerArm = {
-		slot = "RightArm",
-		segment = "Lower"
-	},
-
-	RightHand = {
-		slot = "RightArm",
-		segment = "End"
-	},
-
-	LeftUpperLeg = {
-		slot = "LeftLeg",
-		segment = "Upper"
-	},
-
-	LeftLowerLeg = {
-		slot = "LeftLeg",
-		segment = "Lower"
-	},
-
-	LeftFoot = {
-		slot = "LeftLeg",
-		segment = "End"
-	},
-
-	RightUpperLeg = {
-		slot = "RightLeg",
-		segment = "Upper"
-	},
-
-	RightLowerLeg = {
-		slot = "RightLeg",
-		segment = "Lower"
-	},
-
-	RightFoot = {
-		slot = "RightLeg",
-		segment = "End"
-	}
-}
-
-local AttachmentTargets = {
-	HatAttachment = {
-		r6 = "Head",
-		r15 = "Head"
-	},
-
-	HairAttachment = {
-		r6 = "Head",
-		r15 = "Head"
-	},
-
-	FaceFrontAttachment = {
-		r6 = "Head",
-		r15 = "Head"
-	},
-
-	FaceCenterAttachment = {
-		r6 = "Head",
-		r15 = "Head"
-	},
-
-	NeckAttachment = {
-		r6 = "Torso",
-		r15 = "UpperTorso"
-	},
-
-	BodyFrontAttachment = {
-		r6 = "Torso",
-		r15 = "UpperTorso"
-	},
-
-	BodyBackAttachment = {
-		r6 = "Torso",
-		r15 = "UpperTorso"
-	},
-
-	LeftCollarAttachment = {
-		r6 = "Torso",
-		r15 = "UpperTorso"
-	},
-
-	RightCollarAttachment = {
-		r6 = "Torso",
-		r15 = "UpperTorso"
-	},
-
-	LeftShoulderAttachment = {
-		r6 = "Torso",
-		r15 = "UpperTorso"
-	},
-
-	RightShoulderAttachment = {
-		r6 = "Torso",
-		r15 = "UpperTorso"
-	},
-
-	WaistFrontAttachment = {
-		r6 = "Torso",
-		r15 = "LowerTorso"
-	},
-
-	WaistBackAttachment = {
-		r6 = "Torso",
-		r15 = "LowerTorso"
-	},
-
-	WaistCenterAttachment = {
-		r6 = "Torso",
-		r15 = "LowerTorso"
-	},
-
-	LeftGripAttachment = {
-		r6 = "Left Arm",
-		r15 = "LeftHand"
-	},
-
-	RightGripAttachment = {
-		r6 = "Right Arm",
-		r15 = "RightHand"
-	},
-
-	LeftFootAttachment = {
-		r6 = "Left Leg",
-		r15 = "LeftFoot"
-	},
-
-	RightFootAttachment = {
-		r6 = "Right Leg",
-		r15 = "RightFoot"
-	}
-}
-
-local function GetPartDefinition(Name)
-	return PartDefinitions[Name]
+		tonumber(Data[3])
+			or 1
+	)
 end
 
-local function GetSlot(Name)
-	local Definition =
-		GetPartDefinition(Name)
+local function ToCFrame(Data)
+	if
+		type(Data) ~= "table"
+		or #Data < 12
+	then
+		return CFrame.new()
+	end
 
-	if Definition then
-		return Definition.slot
+	return CFrame.new(
+		tonumber(Data[1]) or 0,
+		tonumber(Data[2]) or 0,
+		tonumber(Data[3]) or 0,
+
+		tonumber(Data[4]) or 1,
+		tonumber(Data[5]) or 0,
+		tonumber(Data[6]) or 0,
+
+		tonumber(Data[7]) or 0,
+		tonumber(Data[8]) or 1,
+		tonumber(Data[9]) or 0,
+
+		tonumber(Data[10]) or 0,
+		tonumber(Data[11]) or 0,
+		tonumber(Data[12]) or 1
+	)
+end
+
+local function GetAssetId(Value)
+	if type(Value) == "number" then
+		return Value
+	end
+
+	if type(Value) ~= "string" then
+		return nil
+	end
+
+	return tonumber(
+		Value:match(
+			"%d+"
+		)
+	)
+end
+
+local function LoadData()
+	if type(readfile) == "function" then
+		local Paths = {
+			"avatars.json",
+			"Catalog-Service/avatars.json",
+			"Catalog-Service/src/avatars.json"
+		}
+
+		for _, Path in ipairs(
+			Paths
+		) do
+			local Exists = true
+
+			if type(isfile) == "function" then
+				Exists =
+					isfile(
+						Path
+					)
+			end
+
+			if Exists then
+				local Success, Result =
+					pcall(function()
+						return HttpService:JSONDecode(
+							readfile(
+								Path
+							)
+						)
+					end)
+
+				if
+					Success
+					and type(Result) == "table"
+					and type(Result.avatars) == "table"
+				then
+					return Result
+				end
+			end
+		end
+	end
+
+	for _, URL in ipairs(
+		JSON_URLS
+	) do
+		local Success, Result =
+			pcall(function()
+				return HttpService:JSONDecode(
+					game:HttpGet(
+						URL
+							.. "?v="
+							.. tostring(
+								os.time()
+							)
+							.. "-"
+							.. tostring(
+								math.random(
+									1,
+									99999999
+								)
+							)
+					)
+				)
+			end)
+
+		if
+			Success
+			and type(Result) == "table"
+			and type(Result.avatars) == "table"
+		then
+			return Result
+		end
 	end
 
 	return nil
 end
 
-local function DefaultR15Target(
-	SourcePart,
-	AttachmentName
+local function GetAvatar(
+	Data,
+	Name
 )
-	local AttachmentDefinition =
-		AttachmentTargets[
-			AttachmentName
+	if
+		type(Data) ~= "table"
+		or type(Data.avatars) ~= "table"
+	then
+		return nil
+	end
+
+	if
+		type(Name) == "string"
+		and Name ~= ""
+		and Data.avatars[Name]
+	then
+		return Data.avatars[Name]
+	end
+
+	if
+		Data.selected
+		and Data.avatars[
+			Data.selected
 		]
-
-	if AttachmentDefinition then
-		return AttachmentDefinition.r15
+	then
+		return Data.avatars[
+			Data.selected
+		]
 	end
 
-	local Definition =
-		GetPartDefinition(SourcePart)
-
-	if not Definition then
-		return SourcePart
-	end
-
-	if Definition.slot == "Head" then
-		return "Head"
-	end
-
-	if Definition.slot == "Torso" then
-		if
-			SourcePart == "LowerTorso"
-			or (
-				AttachmentName
-				and AttachmentName:find(
-					"Waist"
-				)
-			)
-			or (
-				AttachmentName
-				and AttachmentName:find(
-					"Hip"
-				)
-			)
-		then
-			return "LowerTorso"
-		end
-
-		return "UpperTorso"
-	end
-
-	if Definition.slot == "LeftArm" then
-		if
-			AttachmentName == "LeftGripAttachment"
-		then
-			return "LeftHand"
-		end
-
-		if Definition.segment == "Lower" then
-			return "LeftLowerArm"
-		end
-
-		if Definition.segment == "End" then
-			return "LeftHand"
-		end
-
-		return "LeftUpperArm"
-	end
-
-	if Definition.slot == "RightArm" then
-		if
-			AttachmentName == "RightGripAttachment"
-		then
-			return "RightHand"
-		end
-
-		if Definition.segment == "Lower" then
-			return "RightLowerArm"
-		end
-
-		if Definition.segment == "End" then
-			return "RightHand"
-		end
-
-		return "RightUpperArm"
-	end
-
-	if Definition.slot == "LeftLeg" then
-		if
-			AttachmentName == "LeftFootAttachment"
-		then
-			return "LeftFoot"
-		end
-
-		if Definition.segment == "Lower" then
-			return "LeftLowerLeg"
-		end
-
-		if Definition.segment == "End" then
-			return "LeftFoot"
-		end
-
-		return "LeftUpperLeg"
-	end
-
-	if Definition.slot == "RightLeg" then
-		if
-			AttachmentName == "RightFootAttachment"
-		then
-			return "RightFoot"
-		end
-
-		if Definition.segment == "Lower" then
-			return "RightLowerLeg"
-		end
-
-		if Definition.segment == "End" then
-			return "RightFoot"
-		end
-
-		return "RightUpperLeg"
-	end
-
-	if Definition.slot == "Root" then
-		return "HumanoidRootPart"
-	end
-
-	return SourcePart
+	return nil
 end
 
-local function DefaultR6Target(
-	SourcePart,
-	AttachmentName
+local function GetAvatarScales(
+	Avatar
 )
-	local AttachmentDefinition =
-		AttachmentTargets[
-			AttachmentName
-		]
+	local Profile =
+		type(Avatar.sizeProfile)
+			== "table"
+			and Avatar.sizeProfile
+			or {}
 
-	if AttachmentDefinition then
-		return AttachmentDefinition.r6
+	local HumanoidData =
+		type(Avatar.humanoid)
+			== "table"
+			and Avatar.humanoid
+			or {}
+
+	local Scales = {}
+
+	if
+		type(Profile.scales)
+			== "table"
+	then
+		Scales =
+			Profile.scales
+
+	elseif
+		type(HumanoidData.scales)
+			== "table"
+	then
+		Scales =
+			HumanoidData.scales
 	end
 
-	local Definition =
-		GetPartDefinition(SourcePart)
-
-	if not Definition then
-		return SourcePart
-	end
-
-	local BodyDefinition =
-		BodyDefinitions[
-			Definition.slot
-		]
-
-	if BodyDefinition then
-		return BodyDefinition.r6
-	end
-
-	return SourcePart
-end
-
-local function ExtractAttachment(
-	Attachment,
-	SourcePart
-)
 	return {
-		name = Attachment.Name,
-
-		cframe =
-			CFrameToTable(
-				Attachment.CFrame
-			),
-
-		position =
-			VectorToTable(
-				Attachment.Position
-			),
-
-		orientation =
-			VectorToTable(
-				Attachment.Orientation
-			),
-
-		sourcePart =
-			SourcePart,
-
-		bodySlot =
-			GetSlot(SourcePart),
-
-		targetR6 =
-			DefaultR6Target(
-				SourcePart,
-				Attachment.Name
-			),
-
-		targetR15 =
-			DefaultR15Target(
-				SourcePart,
-				Attachment.Name
+		Height =
+			tonumber(
+				Scales.BodyHeightScale
+				or Profile.heightScale
 			)
+			or 1,
+
+		Width =
+			tonumber(
+				Scales.BodyWidthScale
+				or Profile.widthScale
+			)
+			or 1,
+
+		Depth =
+			tonumber(
+				Scales.BodyDepthScale
+				or Profile.depthScale
+			)
+			or 1,
+
+		Head =
+			tonumber(
+				Scales.HeadScale
+				or Profile.headScale
+			)
+			or 1,
+
+		BodyType =
+			tonumber(
+				Scales.BodyTypeScale
+				or Profile.bodyTypeScale
+			)
+			or 0,
+
+		Proportion =
+			tonumber(
+				Scales.BodyProportionScale
+				or Profile.bodyProportionScale
+			)
+			or 0
 	}
 end
 
-local function ExtractAttachments(
-	Object,
-	SourcePart
+local function SetScaleValue(
+	Humanoid,
+	Name,
+	Value
+)
+	local Object =
+		Humanoid:FindFirstChild(
+			Name
+		)
+
+	if
+		Object
+		and Object:IsA(
+			"NumberValue"
+		)
+	then
+		Object.Value =
+			Value
+
+		return true
+	end
+
+	return false
+end
+
+local function ApplyHumanoidScales(
+	Humanoid,
+	Avatar
+)
+	local Scale =
+		GetAvatarScales(
+			Avatar
+		)
+
+	pcall(function()
+		Humanoid.AutomaticScalingEnabled =
+			true
+	end)
+
+	SetScaleValue(
+		Humanoid,
+		"BodyHeightScale",
+		Scale.Height
+	)
+
+	SetScaleValue(
+		Humanoid,
+		"BodyWidthScale",
+		Scale.Width
+	)
+
+	SetScaleValue(
+		Humanoid,
+		"BodyDepthScale",
+		Scale.Depth
+	)
+
+	SetScaleValue(
+		Humanoid,
+		"HeadScale",
+		Scale.Head
+	)
+
+	SetScaleValue(
+		Humanoid,
+		"BodyTypeScale",
+		Scale.BodyType
+	)
+
+	SetScaleValue(
+		Humanoid,
+		"BodyProportionScale",
+		Scale.Proportion
+	)
+
+	task.wait(
+		0.15
+	)
+end
+
+local function ApplyDescriptionScales(
+	Description,
+	Avatar
+)
+	local Scale =
+		GetAvatarScales(
+			Avatar
+		)
+
+	Description.HeightScale =
+		Scale.Height
+
+	Description.WidthScale =
+		Scale.Width
+
+	Description.DepthScale =
+		Scale.Depth
+
+	Description.HeadScale =
+		Scale.Head
+
+	Description.BodyTypeScale =
+		Scale.BodyType
+
+	Description.ProportionScale =
+		Scale.Proportion
+end
+
+local BundleProperties = {
+	Head = "Head",
+	DynamicHead = "Head",
+
+	Torso = "Torso",
+
+	LeftArm = "LeftArm",
+	RightArm = "RightArm",
+
+	LeftLeg = "LeftLeg",
+	RightLeg = "RightLeg"
+}
+
+local function NormalizeAssetType(
+	Item
+)
+	local AssetType =
+		Item.AssetType
+		or Item.assetType
+		or Item.AssetTypeName
+		or Item.assetTypeName
+
+	if typeof(AssetType) == "EnumItem" then
+		return AssetType.Name
+	end
+
+	if AssetType ~= nil then
+		local String =
+			tostring(
+				AssetType
+			)
+
+		return String:match(
+			"([%w]+)$"
+		) or String
+	end
+
+	return ""
+end
+
+local function BundleItemProperty(
+	Item
+)
+	local TypeName =
+		NormalizeAssetType(
+			Item
+		)
+
+	if
+		BundleProperties[
+			TypeName
+		]
+	then
+		return BundleProperties[
+			TypeName
+		]
+	end
+
+	local Name =
+		string.lower(
+			tostring(
+				Item.Name
+				or Item.name
+				or ""
+			)
+		)
+
+	if
+		Name:find(
+			"left arm",
+			1,
+			true
+		)
+		or Name:find(
+			"leftarm",
+			1,
+			true
+		)
+	then
+		return "LeftArm"
+	end
+
+	if
+		Name:find(
+			"right arm",
+			1,
+			true
+		)
+		or Name:find(
+			"rightarm",
+			1,
+			true
+		)
+	then
+		return "RightArm"
+	end
+
+	if
+		Name:find(
+			"left leg",
+			1,
+			true
+		)
+		or Name:find(
+			"leftleg",
+			1,
+			true
+		)
+	then
+		return "LeftLeg"
+	end
+
+	if
+		Name:find(
+			"right leg",
+			1,
+			true
+		)
+		or Name:find(
+			"rightleg",
+			1,
+			true
+		)
+	then
+		return "RightLeg"
+	end
+
+	if
+		Name:find(
+			"torso",
+			1,
+			true
+		)
+	then
+		return "Torso"
+	end
+
+	if
+		Name:find(
+			"head",
+			1,
+			true
+		)
+	then
+		return "Head"
+	end
+
+	return nil
+end
+
+local function GetBundleId(
+	Avatar
+)
+	local Id =
+		tonumber(
+			Avatar.bodyBundleId
+		)
+
+	if Id then
+		return Id
+	end
+
+	if
+		type(Avatar.bodyBundle)
+			== "table"
+	then
+		return tonumber(
+			Avatar.bodyBundle.id
+		)
+	end
+
+	return nil
+end
+
+local function GetBodyMode(
+	Avatar
+)
+	if GetBundleId(Avatar) then
+		return "bundle"
+	end
+
+	if
+		Avatar.crossRigBody == true
+		or Avatar.bodyMode == "crossRig"
+	then
+		return "crossRig"
+	end
+
+	return "native"
+end
+
+local function ApplyBodyBundle(
+	Humanoid,
+	Avatar
+)
+	local BundleId =
+		GetBundleId(
+			Avatar
+		)
+
+	if not BundleId then
+		return false
+	end
+
+	local Success, Details =
+		pcall(function()
+			return AssetService:
+				GetBundleDetailsAsync(
+					BundleId
+				)
+		end)
+
+	if
+		not Success
+		or type(Details)
+			~= "table"
+	then
+		return false
+	end
+
+	local Description
+
+	local DescriptionSuccess =
+		pcall(function()
+			Description =
+				Humanoid:
+					GetAppliedDescription()
+		end)
+
+	if
+		not DescriptionSuccess
+		or not Description
+	then
+		Description =
+			Instance.new(
+				"HumanoidDescription"
+			)
+	end
+
+	local Found =
+		false
+
+	local Items =
+		Details.Items
+		or Details.items
+		or {}
+
+	for _, Item in ipairs(
+		Items
+	) do
+		if type(Item) == "table" then
+			local Property =
+				BundleItemProperty(
+					Item
+				)
+
+			local AssetId =
+				tonumber(
+					Item.Id
+					or Item.id
+					or Item.AssetId
+					or Item.assetId
+				)
+
+			if
+				Property
+				and AssetId
+				and AssetId > 0
+			then
+				local Set =
+					pcall(function()
+						Description[
+							Property
+						] =
+							AssetId
+					end)
+
+				if Set then
+					Found =
+						true
+				end
+			end
+		end
+	end
+
+	if not Found then
+		Description:Destroy()
+
+		return false
+	end
+
+	ApplyDescriptionScales(
+		Description,
+		Avatar
+	)
+
+	pcall(function()
+		Humanoid.AutomaticScalingEnabled =
+			true
+	end)
+
+	local Applied =
+		pcall(function()
+			Humanoid:
+				ApplyDescriptionResetAsync(
+					Description
+				)
+		end)
+
+	if not Applied then
+		Applied =
+			pcall(function()
+				Humanoid:
+					ApplyDescriptionAsync(
+						Description
+					)
+			end)
+	end
+
+	if not Applied then
+		Applied =
+			pcall(function()
+				Humanoid:
+					ApplyDescriptionReset(
+						Description
+					)
+			end)
+	end
+
+	if not Applied then
+		Applied =
+			pcall(function()
+				Humanoid:
+					ApplyDescription(
+						Description
+					)
+			end)
+	end
+
+	Description:Destroy()
+
+	return Applied
+end
+
+local function BuildBodyData(
+	Avatar
 )
 	local Result = {}
 
-	for _, Child in ipairs(
-		Object:GetChildren()
+	if
+		type(Avatar.bodyParts)
+			~= "table"
+	then
+		return Result
+	end
+
+	for _, Entry in ipairs(
+		Avatar.bodyParts
 	) do
-		if Child:IsA("Attachment") then
-			table.insert(
-				Result,
-				ExtractAttachment(
-					Child,
-					SourcePart
+		if
+			type(Entry) == "table"
+			and Entry.type
+				== "actualBodyPart"
+			and Entry.data
+		then
+			local Data =
+				DecodeObject(
+					Entry.data
 				)
-			)
+
+			if
+				Data
+				and Data.name
+			then
+				Result[
+					Data.name
+				] =
+					Data
+			end
 		end
 	end
 
 	return Result
 end
 
-local function ExtractSurfaceAppearance(
-	Object
+local function CreateSurfaceAppearance(
+	Parent,
+	Data
 )
+	if type(Data) ~= "table" then
+		return
+	end
+
+	local Existing =
+		Parent:
+			FindFirstChildOfClass(
+				"SurfaceAppearance"
+			)
+
+	if Existing then
+		Existing:Destroy()
+	end
+
 	local Surface =
-		Object:FindFirstChildOfClass(
+		Instance.new(
 			"SurfaceAppearance"
 		)
 
-	if not Surface then
-		return nil
-	end
-
-	local Data = {
-		name = Surface.Name
-	}
-
-	local StringProperties = {
+	for _, Property in ipairs({
 		"ColorMap",
 		"MetalnessMap",
 		"NormalMap",
 		"RoughnessMap"
-	}
-
-	for _, Property in ipairs(
-		StringProperties
-	) do
-		local Value =
-			GetProperty(
-				Surface,
-				Property
-			)
-
-		if type(Value) == "string" then
-			Data[Property] = Value
+	}) do
+		if Data[Property] then
+			pcall(function()
+				Surface[
+					Property
+				] =
+					Data[
+						Property
+					]
+			end)
 		end
 	end
 
-	local AlphaMode =
-		GetProperty(
-			Surface,
-			"AlphaMode"
-		)
-
-	if AlphaMode then
-		Data.AlphaMode =
-			AlphaMode.Name
+	if Data.AlphaMode then
+		pcall(function()
+			Surface.AlphaMode =
+				Enum.AlphaMode[
+					Data.AlphaMode
+				]
+		end)
 	end
 
-	return Data
+	Surface.Parent =
+		Parent
 end
 
-local function ExtractWrapLayer(
-	Object
+local function CreateWrapTarget(
+	Parent,
+	Data
 )
+	if type(Data) ~= "table" then
+		return
+	end
+
+	local Existing =
+		Parent:
+			FindFirstChildOfClass(
+				"WrapTarget"
+			)
+
+	if Existing then
+		Existing:Destroy()
+	end
+
 	local Wrap =
-		Object:FindFirstChildOfClass(
-			"WrapLayer"
-		)
-
-	if not Wrap then
-		return nil
-	end
-
-	local Data = {
-		name = Wrap.Name
-	}
-
-	local StringProperties = {
-		"CageMeshId",
-		"ReferenceMeshId"
-	}
-
-	local NumberProperties = {
-		"Order",
-		"Puffiness",
-		"ShrinkFactor"
-	}
-
-	for _, Property in ipairs(
-		StringProperties
-	) do
-		local Value =
-			GetProperty(
-				Wrap,
-				Property
-			)
-
-		if type(Value) == "string" then
-			Data[Property] = Value
-		end
-	end
-
-	for _, Property in ipairs(
-		NumberProperties
-	) do
-		local Value =
-			GetProperty(
-				Wrap,
-				Property
-			)
-
-		if type(Value) == "number" then
-			Data[Property] = Value
-		end
-	end
-
-	local CFrameProperties = {
-		"CageOrigin",
-		"ImportOrigin",
-		"ReferenceOrigin"
-	}
-
-	for _, Property in ipairs(
-		CFrameProperties
-	) do
-		local Value =
-			GetProperty(
-				Wrap,
-				Property
-			)
-
-		if typeof(Value) == "CFrame" then
-			Data[Property] =
-				CFrameToTable(Value)
-		end
-	end
-
-	return Data
-end
-
-local function ExtractWrapTarget(
-	Object
-)
-	local Wrap =
-		Object:FindFirstChildOfClass(
+		Instance.new(
 			"WrapTarget"
 		)
 
-	if not Wrap then
+	Wrap.Name =
+		Data.name
+		or "WrapTarget"
+
+	if Data.CageMeshId then
+		pcall(function()
+			Wrap.CageMeshId =
+				Data.CageMeshId
+		end)
+	end
+
+	if Data.CageOrigin then
+		pcall(function()
+			Wrap.CageOrigin =
+				ToCFrame(
+					Data.CageOrigin
+				)
+		end)
+	end
+
+	if Data.ImportOrigin then
+		pcall(function()
+			Wrap.ImportOrigin =
+				ToCFrame(
+					Data.ImportOrigin
+				)
+		end)
+	end
+
+	Wrap.Parent =
+		Parent
+end
+
+local function CreateWrapLayer(
+	Parent,
+	Data
+)
+	if type(Data) ~= "table" then
+		return
+	end
+
+	local Existing =
+		Parent:
+			FindFirstChildOfClass(
+				"WrapLayer"
+			)
+
+	if Existing then
+		Existing:Destroy()
+	end
+
+	local Wrap =
+		Instance.new(
+			"WrapLayer"
+		)
+
+	Wrap.Name =
+		Data.name
+		or "WrapLayer"
+
+	if Data.CageMeshId then
+		pcall(function()
+			Wrap.CageMeshId =
+				Data.CageMeshId
+		end)
+	end
+
+	if Data.ReferenceMeshId then
+		pcall(function()
+			Wrap.ReferenceMeshId =
+				Data.ReferenceMeshId
+		end)
+	end
+
+	if Data.CageOrigin then
+		pcall(function()
+			Wrap.CageOrigin =
+				ToCFrame(
+					Data.CageOrigin
+				)
+		end)
+	end
+
+	if Data.ImportOrigin then
+		pcall(function()
+			Wrap.ImportOrigin =
+				ToCFrame(
+					Data.ImportOrigin
+				)
+		end)
+	end
+
+	if Data.ReferenceOrigin then
+		pcall(function()
+			Wrap.ReferenceOrigin =
+				ToCFrame(
+					Data.ReferenceOrigin
+				)
+		end)
+	end
+
+	if Data.Order ~= nil then
+		pcall(function()
+			Wrap.Order =
+				Data.Order
+		end)
+	end
+
+	if Data.Puffiness ~= nil then
+		pcall(function()
+			Wrap.Puffiness =
+				Data.Puffiness
+		end)
+	end
+
+	if Data.ShrinkFactor ~= nil then
+		pcall(function()
+			Wrap.ShrinkFactor =
+				Data.ShrinkFactor
+		end)
+	end
+
+	Wrap.Parent =
+		Parent
+end
+
+local function CreateMeshPart(
+	MeshData
+)
+	if type(MeshData) ~= "table" then
 		return nil
 	end
 
-	local Data = {
-		name = Wrap.Name
-	}
-
-	local CageMeshId =
-		GetProperty(
-			Wrap,
-			"CageMeshId"
+	local MeshId =
+		GetAssetId(
+			MeshData.meshId
 		)
 
-	if type(CageMeshId) == "string" then
-		Data.CageMeshId =
-			CageMeshId
+	if not MeshId then
+		return nil
 	end
 
-	local CageOrigin =
-		GetProperty(
-			Wrap,
-			"CageOrigin"
-		)
+	local Options = {}
 
-	if typeof(CageOrigin) == "CFrame" then
-		Data.CageOrigin =
-			CFrameToTable(
-				CageOrigin
-			)
+	if MeshData.collisionFidelity then
+		local Fidelity =
+			Enum.CollisionFidelity[
+				MeshData.collisionFidelity
+			]
+
+		if Fidelity then
+			Options.CollisionFidelity =
+				Fidelity
+		end
 	end
 
-	local ImportOrigin =
-		GetProperty(
-			Wrap,
-			"ImportOrigin"
-		)
+	if MeshData.renderFidelity then
+		local Fidelity =
+			Enum.RenderFidelity[
+				MeshData.renderFidelity
+			]
 
-	if typeof(ImportOrigin) == "CFrame" then
-		Data.ImportOrigin =
-			CFrameToTable(
-				ImportOrigin
-			)
+		if Fidelity then
+			Options.RenderFidelity =
+				Fidelity
+		end
 	end
 
-	return Data
-end
-
-local function ExtractMesh(BasePart)
-	local Data = {}
-
-	if BasePart:IsA("MeshPart") then
-		Data.meshType =
-			"MeshPart"
-
-		Data.meshId =
-			BasePart.MeshId
-
-		Data.textureId =
-			BasePart.TextureID
-
-		local MeshSize =
-			GetProperty(
-				BasePart,
-				"MeshSize"
-			)
-
-		if typeof(MeshSize) == "Vector3" then
-			Data.meshSize =
-				VectorToTable(
-					MeshSize
+	local Success, Part =
+		pcall(function()
+			return AssetService:
+				CreateMeshPartAsync(
+					Content.fromAssetId(
+						MeshId
+					),
+					Options
 				)
-		end
+		end)
 
-		local RenderFidelity =
-			GetProperty(
-				BasePart,
-				"RenderFidelity"
-			)
-
-		if RenderFidelity then
-			Data.renderFidelity =
-				RenderFidelity.Name
-		end
-
-		local CollisionFidelity =
-			GetProperty(
-				BasePart,
-				"CollisionFidelity"
-			)
-
-		if CollisionFidelity then
-			Data.collisionFidelity =
-				CollisionFidelity.Name
-		end
-
-		local DoubleSided =
-			GetProperty(
-				BasePart,
-				"DoubleSided"
-			)
-
-		if DoubleSided ~= nil then
-			Data.doubleSided =
-				DoubleSided
-		end
-
-		Data.surfaceAppearance =
-			ExtractSurfaceAppearance(
-				BasePart
-			)
-
-		Data.wrapTarget =
-			ExtractWrapTarget(
-				BasePart
-			)
-
-		return Data
+	if
+		not Success
+		or not Part
+	then
+		return nil
 	end
 
-	local Mesh =
-		BasePart:FindFirstChildOfClass(
-			"SpecialMesh"
-		)
-
-	if Mesh then
-		Data.meshType =
-			"SpecialMesh"
-
-		Data.meshId =
-			Mesh.MeshId
-
-		Data.textureId =
-			Mesh.TextureId
-
-		Data.scale =
-			VectorToTable(
-				Mesh.Scale
-			)
-
-		Data.offset =
-			VectorToTable(
-				Mesh.Offset
-			)
-
-		Data.vertexColor =
-			VectorToTable(
-				Mesh.VertexColor
-			)
-
-		Data.meshEnum =
-			Mesh.MeshType.Name
-
-		return Data
+	if MeshData.textureId then
+		pcall(function()
+			Part.TextureID =
+				MeshData.textureId
+		end)
 	end
 
-	Data.meshType =
-		"Part"
+	if MeshData.doubleSided ~= nil then
+		pcall(function()
+			Part.DoubleSided =
+				MeshData.doubleSided
+		end)
+	end
 
-	return Data
+	CreateSurfaceAppearance(
+		Part,
+		MeshData.surfaceAppearance
+	)
+
+	CreateWrapTarget(
+		Part,
+		MeshData.wrapTarget
+	)
+
+	return Part
 end
 
-local function GetAssetId(Object)
-	local Properties = {
-		"SourceAssetId",
-		"AssetId"
-	}
-
-	for _, Property in ipairs(
-		Properties
-	) do
-		local Value =
-			GetProperty(
-				Object,
-				Property
+local function ApplyBodyProperties(
+	Part,
+	Data
+)
+	if Data.size then
+		Part.Size =
+			ToVector3(
+				Data.size,
+				Part.Size
 			)
+	end
+
+	if Data.color then
+		Part.Color =
+			ToColor3(
+				Data.color
+			)
+	end
+
+	if Data.transparency ~= nil then
+		Part.Transparency =
+			Data.transparency
+	end
+
+	if Data.reflectance ~= nil then
+		Part.Reflectance =
+			Data.reflectance
+	end
+
+	if Data.material then
+		pcall(function()
+			Part.Material =
+				Enum.Material[
+					Data.material
+				]
+		end)
+	end
+end
+
+local function ApplyMeshToPart(
+	Part,
+	Data
+)
+	if
+		not Part:IsA(
+			"MeshPart"
+		)
+		or type(Data.mesh)
+			~= "table"
+		or Data.mesh.meshType
+			~= "MeshPart"
+	then
+		return false
+	end
+
+	local Source =
+		CreateMeshPart(
+			Data.mesh
+		)
+
+	if not Source then
+		return false
+	end
+
+	local Success =
+		pcall(function()
+			Part:ApplyMesh(
+				Source
+			)
+		end)
+
+	Source:Destroy()
+
+	if not Success then
+		return false
+	end
+
+	ApplyBodyProperties(
+		Part,
+		Data
+	)
+
+	CreateWrapTarget(
+		Part,
+		Data.mesh.wrapTarget
+	)
+
+	return true
+end
+
+local function ApplySameRigBody(
+	Character,
+	BodyData
+)
+	local Index = 0
+
+	for Name, Data in pairs(
+		BodyData
+	) do
+		if
+			Name
+			~= "HumanoidRootPart"
+		then
+			local Part =
+				Character:
+					FindFirstChild(
+						Name
+					)
+
+			if
+				Part
+				and Part:IsA(
+					"BasePart"
+				)
+			then
+				ApplyBodyProperties(
+					Part,
+					Data
+				)
+
+				ApplyMeshToPart(
+					Part,
+					Data
+				)
+			end
+
+			Index += 1
+
+			if Index % 2 == 0 then
+				task.wait(
+					0.04
+				)
+			end
+		end
+	end
+end
+
+local R6Targets = {
+	Head =
+		"Head",
+
+	Torso =
+		"Torso",
+
+	LeftArm =
+		"Left Arm",
+
+	RightArm =
+		"Right Arm",
+
+	LeftLeg =
+		"Left Leg",
+
+	RightLeg =
+		"Right Leg",
+
+	Root =
+		"HumanoidRootPart"
+}
+
+local function RestoreCrossRigTransparency(
+	Character
+)
+	for _, Name in pairs(
+		R6Targets
+	) do
+		local Part =
+			Character:
+				FindFirstChild(
+					Name
+				)
 
 		if
-			type(Value) == "number"
-			and Value > 0
+			Part
+			and Part:IsA(
+				"BasePart"
+			)
 		then
-			return Value
+			local Original =
+				Part:GetAttribute(
+					"CatalogOriginalTransparency"
+				)
+
+			if Original ~= nil then
+				Part.Transparency =
+					Original
+
+				Part:SetAttribute(
+					"CatalogOriginalTransparency",
+					nil
+				)
+			end
+		end
+	end
+end
+
+local function ClearCrossRigVisuals(
+	Character
+)
+	local Folder =
+		Character:
+			FindFirstChild(
+				"CatalogBodyVisuals"
+			)
+
+	if Folder then
+		Folder:Destroy()
+	end
+
+	RestoreCrossRigTransparency(
+		Character
+	)
+end
+
+local function HideCrossRigTarget(
+	Part
+)
+	if
+		Part:GetAttribute(
+			"CatalogOriginalTransparency"
+		) == nil
+	then
+		Part:SetAttribute(
+			"CatalogOriginalTransparency",
+			Part.Transparency
+		)
+	end
+
+	Part.Transparency =
+		1
+end
+
+local function ApplyR15BodyToR6(
+	Character,
+	BodyData
+)
+	ClearCrossRigVisuals(
+		Character
+	)
+
+	local TargetRoot =
+		Character:
+			FindFirstChild(
+				"HumanoidRootPart"
+			)
+
+	local SavedRoot =
+		BodyData.HumanoidRootPart
+
+	if
+		not TargetRoot
+		or not SavedRoot
+		or not SavedRoot.cframe
+	then
+		return
+	end
+
+	local SourceRootCFrame =
+		ToCFrame(
+			SavedRoot.cframe
+		)
+
+	local Folder =
+		Instance.new(
+			"Folder"
+		)
+
+	Folder.Name =
+		"CatalogBodyVisuals"
+
+	Folder.Parent =
+		Character
+
+	local HiddenTargets = {}
+
+	for _, Data in pairs(
+		BodyData
+	) do
+		if
+			Data.name
+				~= "HumanoidRootPart"
+			and Data.bodySlot
+			and Data.cframe
+			and type(Data.mesh)
+				== "table"
+			and Data.mesh.meshType
+				== "MeshPart"
+		then
+			local TargetName =
+				R6Targets[
+					Data.bodySlot
+				]
+
+			local Target =
+				TargetName
+				and Character:
+					FindFirstChild(
+						TargetName
+					)
+
+			if
+				Target
+				and Target:IsA(
+					"BasePart"
+				)
+			then
+				if
+					not HiddenTargets[
+						Target
+					]
+				then
+					HideCrossRigTarget(
+						Target
+					)
+
+					HiddenTargets[
+						Target
+					] =
+						true
+				end
+
+				local Visual =
+					CreateMeshPart(
+						Data.mesh
+					)
+
+				if Visual then
+					Visual.Name =
+						"Catalog_"
+						.. Data.name
+
+					if Data.size then
+						Visual.Size =
+							ToVector3(
+								Data.size,
+								Visual.Size
+							)
+					end
+
+					if Data.color then
+						Visual.Color =
+							ToColor3(
+								Data.color
+							)
+					end
+
+					if
+						Data.transparency
+							~= nil
+					then
+						Visual.Transparency =
+							Data.transparency
+					end
+
+					if
+						Data.reflectance
+							~= nil
+					then
+						Visual.Reflectance =
+							Data.reflectance
+					end
+
+					if Data.material then
+						pcall(function()
+							Visual.Material =
+								Enum.Material[
+									Data.material
+								]
+						end)
+					end
+
+					Visual.CanCollide =
+						false
+
+					Visual.CanTouch =
+						false
+
+					Visual.CanQuery =
+						false
+
+					Visual.Massless =
+						true
+
+					local SourcePartCFrame =
+						ToCFrame(
+							Data.cframe
+						)
+
+					local RootRelative =
+						SourceRootCFrame:
+							ToObjectSpace(
+								SourcePartCFrame
+							)
+
+					Visual.CFrame =
+						TargetRoot.CFrame
+						* RootRelative
+
+					Visual.Parent =
+						Folder
+
+					local Weld =
+						Instance.new(
+							"Weld"
+						)
+
+					Weld.Name =
+						"CatalogBodyWeld"
+
+					Weld.Part0 =
+						Target
+
+					Weld.Part1 =
+						Visual
+
+					Weld.C0 =
+						Target.CFrame:
+							ToObjectSpace(
+								Visual.CFrame
+							)
+
+					Weld.C1 =
+						CFrame.new()
+
+					Weld.Parent =
+						Visual
+				end
+
+				task.wait(
+					0.025
+				)
+			end
+		end
+	end
+end
+
+local function ApplySavedBody(
+	Character,
+	Humanoid,
+	Avatar,
+	BodyMode
+)
+	local BodyData =
+		BuildBodyData(
+			Avatar
+		)
+
+	if next(BodyData) == nil then
+		return
+	end
+
+	local SourceRig =
+		Avatar.sourceRig
+
+	if
+		not SourceRig
+		and type(Avatar.humanoid)
+			== "table"
+	then
+		SourceRig =
+			Avatar.humanoid.rigType
+	end
+
+	local TargetRig =
+		Humanoid.RigType.Name
+
+	if SourceRig == TargetRig then
+		ApplySameRigBody(
+			Character,
+			BodyData
+		)
+
+		return
+	end
+
+	if
+		BodyMode == "crossRig"
+		and SourceRig == "R15"
+		and TargetRig == "R6"
+	then
+		ApplyR15BodyToR6(
+			Character,
+			BodyData
+		)
+	end
+end
+
+local function BuildSavedAttachmentMap(
+	Avatar
+)
+	local Result = {}
+
+	local BodyData =
+		BuildBodyData(
+			Avatar
+		)
+
+	for _, Data in pairs(
+		BodyData
+	) do
+		if
+			type(Data.attachments)
+				== "table"
+		then
+			for _, Attachment in ipairs(
+				Data.attachments
+			) do
+				if Attachment.name then
+					Result[
+						Attachment.name
+					] =
+						Attachment
+				end
+			end
+		end
+	end
+
+	return Result
+end
+
+local function FindCharacterAttachment(
+	Character,
+	Name,
+	Ignore
+)
+	for _, Object in ipairs(
+		Character:GetDescendants()
+	) do
+		if
+			Object:IsA(
+				"Attachment"
+			)
+			and Object.Name == Name
+			and (
+				not Ignore
+				or not Object:
+					IsDescendantOf(
+						Ignore
+					)
+			)
+		then
+			return Object
 		end
 	end
 
 	return nil
 end
 
-local function ExtractJoint(Object)
-	local Data = {
-		name = Object.Name,
-		className = Object.ClassName,
-
-		parent =
-			Object.Parent
-			and Object.Parent.Name
-			or ""
-	}
-
-	local Part0 =
-		GetProperty(
-			Object,
-			"Part0"
-		)
-
-	local Part1 =
-		GetProperty(
-			Object,
-			"Part1"
-		)
-
-	if Part0 then
-		Data.part0 =
-			Part0.Name
-	end
-
-	if Part1 then
-		Data.part1 =
-			Part1.Name
-	end
-
-	local C0 =
-		GetProperty(
-			Object,
-			"C0"
-		)
-
-	local C1 =
-		GetProperty(
-			Object,
-			"C1"
-		)
-
-	if typeof(C0) == "CFrame" then
-		Data.c0 =
-			CFrameToTable(C0)
-	end
-
-	if typeof(C1) == "CFrame" then
-		Data.c1 =
-			CFrameToTable(C1)
-	end
-
-	if Object:IsA("Motor6D") then
-		Data.transform =
-			CFrameToTable(
-				Object.Transform
-			)
-	end
-
-	return Data
-end
-
-local function ExtractAccessory(
-	Accessory
-)
-	local AccessoryType =
-		GetProperty(
-			Accessory,
-			"AccessoryType"
-		)
-
-	local Data = {
-		name =
-			Accessory.Name,
-
-		className =
-			Accessory.ClassName,
-
-		accessoryType =
-			AccessoryType
-			and AccessoryType.Name
-			or "Unknown"
-	}
-
-	local AssetId =
-		GetAssetId(
-			Accessory
-		)
-
-	if AssetId then
-		Data.avatarItemId =
-			AssetId
-	end
-
-	local Handle =
-		Accessory:FindFirstChild(
-			"Handle"
-		)
-
-	if
-		not Handle
-		or not Handle:IsA("BasePart")
-	then
-		return Data
-	end
-
-	local HandleAssetId =
-		GetAssetId(
-			Handle
-		)
-
-	if
-		not Data.avatarItemId
-		and HandleAssetId
-	then
-		Data.avatarItemId =
-			HandleAssetId
-	end
-
-	Data.handle = {
-		className =
-			Handle.ClassName,
-
-		size =
-			VectorToTable(
-				Handle.Size
-			),
-
-		cframe =
-			CFrameToTable(
-				Handle.CFrame
-			),
-
-		color =
-			ColorToTable(
-				Handle.Color
-			),
-
-		transparency =
-			Handle.Transparency,
-
-		reflectance =
-			Handle.Reflectance,
-
-		material =
-			Handle.Material.Name,
-
-		canCollide =
-			Handle.CanCollide,
-
-		canTouch =
-			Handle.CanTouch,
-
-		canQuery =
-			Handle.CanQuery,
-
-		massless =
-			Handle.Massless,
-
-		mesh =
-			ExtractMesh(
-				Handle
-			),
-
-		attachments =
-			ExtractAttachments(
-				Handle,
-				nil
-			),
-
-		wrapLayer =
-			ExtractWrapLayer(
-				Handle
-			),
-
-		welds = {}
-	}
-
-	for _, Child in ipairs(
-		Handle:GetChildren()
-	) do
-		if
-			Child:IsA("Weld")
-			or Child:IsA("Motor6D")
-			or Child:IsA("WeldConstraint")
-		then
-			table.insert(
-				Data.handle.welds,
-				ExtractJoint(
-					Child
-				)
-			)
-		end
-	end
-
-	return Data
-end
-
-local function ExtractBodyPart(
-	Part
-)
-	local Definition =
-		GetPartDefinition(
-			Part.Name
-		)
-
-	local Data = {
-		name =
-			Part.Name,
-
-		className =
-			Part.ClassName,
-
-		bodySlot =
-			Definition
-			and Definition.slot
-			or nil,
-
-		segment =
-			Definition
-			and Definition.segment
-			or nil,
-
-		targetR6 =
-			DefaultR6Target(
-				Part.Name
-			),
-
-		targetR15 =
-			DefaultR15Target(
-				Part.Name
-			),
-
-		size =
-			VectorToTable(
-				Part.Size
-			),
-
-		cframe =
-			CFrameToTable(
-				Part.CFrame
-			),
-
-		color =
-			ColorToTable(
-				Part.Color
-			),
-
-		transparency =
-			Part.Transparency,
-
-		reflectance =
-			Part.Reflectance,
-
-		material =
-			Part.Material.Name,
-
-		mesh =
-			ExtractMesh(
-				Part
-			),
-
-		attachments =
-			ExtractAttachments(
-				Part,
-				Part.Name
-			),
-
-		joints = {}
-	}
-
-	local AssetId =
-		GetAssetId(
-			Part
-		)
-
-	if AssetId then
-		Data.avatarItemId =
-			AssetId
-	end
-
-	for _, Child in ipairs(
-		Part:GetChildren()
-	) do
-		if
-			Child:IsA("Motor6D")
-			or Child:IsA("Weld")
-			or Child:IsA("WeldConstraint")
-		then
-			table.insert(
-				Data.joints,
-				ExtractJoint(
-					Child
-				)
-			)
-		end
-	end
-
-	return Data
-end
-
-local function ExtractCharacterMeshes(
-	Character
-)
-	local Result = {}
-
-	for _, Object in ipairs(
-		Character:GetChildren()
-	) do
-		if Object:IsA("CharacterMesh") then
-			local Data = {
-				name =
-					Object.Name,
-
-				bodyPart =
-					Object.BodyPart.Name
-			}
-
-			local Properties = {
-				"MeshId",
-				"BaseTextureId",
-				"OverlayTextureId"
-			}
-
-			for _, Property in ipairs(
-				Properties
-			) do
-				local Value =
-					GetProperty(
-						Object,
-						Property
-					)
-
-				if Value ~= nil then
-					Data[Property] =
-						Value
-				end
-			end
-
-			table.insert(
-				Result,
-				Data
-			)
-		end
-	end
-
-	return Result
-end
-
-local function ExtractBodyMap(
+local function GetFallbackTargetPart(
 	Character,
-	Humanoid
+	Humanoid,
+	SavedAttachment
 )
-	local Map = {
-		sourceRig =
-			Humanoid.RigType.Name,
-
-		slots = {}
-	}
-
-	for Slot, Definition in pairs(
-		BodyDefinitions
-	) do
-		local Entry = {
-			r6Target =
-				Definition.r6,
-
-			r15Targets =
-				Definition.r15,
-
-			sourceParts = {}
-		}
-
-		if
-			Humanoid.RigType
-			== Enum.HumanoidRigType.R6
-		then
-			local Part =
-				Character:FindFirstChild(
-					Definition.r6
-				)
-
-			if
-				Part
-				and Part:IsA("BasePart")
-			then
-				table.insert(
-					Entry.sourceParts,
-					Definition.r6
-				)
-			end
-
-		else
-			for _, Name in ipairs(
-				Definition.r15
-			) do
-				local Part =
-					Character:FindFirstChild(
-						Name
-					)
-
-				if
-					Part
-					and Part:IsA("BasePart")
-				then
-					table.insert(
-						Entry.sourceParts,
-						Name
-					)
-				end
-			end
-		end
-
-		Map.slots[Slot] =
-			Entry
-	end
-
-	return Map
-end
-
-local function ExtractJointMap(
-	Character
-)
-	local Result = {}
-
-	for _, Object in ipairs(
-		Character:GetDescendants()
-	) do
-		if
-			Object:IsA("Motor6D")
-			or Object:IsA("Weld")
-		then
-			table.insert(
-				Result,
-				ExtractJoint(
-					Object
-				)
-			)
-		end
-	end
-
-	return Result
-end
-
-local function ExtractClothing(
-	Character
-)
-	local Result = {}
-
-	for _, Object in ipairs(
-		Character:GetChildren()
-	) do
-		if Object:IsA("Shirt") then
-			Result.shirt = {
-				name =
-					Object.Name,
-
-				texture =
-					Object.ShirtTemplate
-			}
-
-		elseif Object:IsA("Pants") then
-			Result.pants = {
-				name =
-					Object.Name,
-
-				texture =
-					Object.PantsTemplate
-			}
-
-		elseif Object:IsA("ShirtGraphic") then
-			Result.tshirt = {
-				name =
-					Object.Name,
-
-				texture =
-					Object.Graphic
-			}
-		end
-	end
-
-	return Result
-end
-
-local function ExtractBodyColors(
-	Character
-)
-	local Colors =
-		Character:FindFirstChildOfClass(
-			"BodyColors"
-		)
-
-	if not Colors then
+	if
+		type(SavedAttachment)
+			~= "table"
+	then
 		return nil
 	end
 
-	return {
-		head =
-			ColorToTable(
-				Colors.HeadColor3
-			),
+	local Name
 
-		torso =
-			ColorToTable(
-				Colors.TorsoColor3
-			),
-
-		leftArm =
-			ColorToTable(
-				Colors.LeftArmColor3
-			),
-
-		rightArm =
-			ColorToTable(
-				Colors.RightArmColor3
-			),
-
-		leftLeg =
-			ColorToTable(
-				Colors.LeftLegColor3
-			),
-
-		rightLeg =
-			ColorToTable(
-				Colors.RightLegColor3
-			)
-	}
-end
-
-local function ExtractDecals(
-	Character
-)
-	local Result = {}
-
-	for _, Object in ipairs(
-		Character:GetDescendants()
-	) do
-		if Object:IsA("Decal") then
-			table.insert(
-				Result,
-				{
-					name =
-						Object.Name,
-
-					parent =
-						Object.Parent
-						and Object.Parent.Name
-						or "",
-
-					texture =
-						Object.Texture,
-
-					face =
-						Object.Face.Name,
-
-					transparency =
-						Object.Transparency,
-
-					color =
-						ColorToTable(
-							Object.Color3
-						)
-				}
-			)
-		end
+	if
+		Humanoid.RigType
+			== Enum.HumanoidRigType.R6
+	then
+		Name =
+			SavedAttachment.targetR6
+	else
+		Name =
+			SavedAttachment.targetR15
 	end
 
-	return Result
-end
-
-local function ExtractAnimations(
-	Character
-)
-	local Result = {}
-
-	for _, Object in ipairs(
-		Character:GetDescendants()
-	) do
-		if Object:IsA("Animation") then
-			table.insert(
-				Result,
-				{
-					name =
-						Object.Name,
-
-					parent =
-						Object.Parent
-						and Object.Parent.Name
-						or "",
-
-					animationId =
-						Object.AnimationId
-				}
-			)
-		end
+	if not Name then
+		return nil
 	end
 
-	return Result
-end
-
-local function ExtractPlayingAnimations(
-	Humanoid
-)
-	local Result = {}
-
-	local Animator =
-		Humanoid:FindFirstChildOfClass(
-			"Animator"
-		)
-
-	if not Animator then
-		return Result
-	end
-
-	for _, Track in ipairs(
-		Animator:GetPlayingAnimationTracks()
-	) do
-		local Animation =
-			Track.Animation
-
-		table.insert(
-			Result,
-			{
-				name =
-					Track.Name,
-
-				animationId =
-					Animation
-					and Animation.AnimationId
-					or "",
-
-				priority =
-					Track.Priority.Name,
-
-				speed =
-					Track.Speed,
-
-				timePosition =
-					Track.TimePosition,
-
-				weight =
-					Track.WeightCurrent,
-
-				looped =
-					Track.Looped
-			}
-		)
-	end
-
-	return Result
-end
-
-local ScaleNames = {
-	"BodyHeightScale",
-	"BodyWidthScale",
-	"BodyDepthScale",
-	"HeadScale",
-	"BodyTypeScale",
-	"BodyProportionScale"
-}
-
-local function ExtractScales(
-	Humanoid
-)
-	local Result = {}
-
-	for _, Name in ipairs(
-		ScaleNames
-	) do
-		local Value =
-			Humanoid:FindFirstChild(
+	local Part =
+		Character:
+			FindFirstChild(
 				Name
 			)
 
+	if
+		Part
+		and Part:IsA(
+			"BasePart"
+		)
+	then
+		return Part
+	end
+
+	return nil
+end
+
+local function ApplyHandleAttachments(
+	Handle,
+	Attachments
+)
+	if
+		type(Attachments)
+			~= "table"
+	then
+		return
+	end
+
+	for _, Data in ipairs(
+		Attachments
+	) do
+		if Data.name then
+			local Attachment =
+				Instance.new(
+					"Attachment"
+				)
+
+			Attachment.Name =
+				Data.name
+
+			if Data.cframe then
+				Attachment.CFrame =
+					ToCFrame(
+						Data.cframe
+					)
+
+			elseif Data.position then
+				Attachment.Position =
+					ToVector3(
+						Data.position
+					)
+
+				if Data.orientation then
+					Attachment.Orientation =
+						ToVector3(
+							Data.orientation
+						)
+				end
+			end
+
+			Attachment.Parent =
+				Handle
+		end
+	end
+end
+
+local function GetMeshScale(
+	HandleData,
+	MeshData
+)
+	if
+		type(MeshData.meshSize)
+			== "table"
+		and type(HandleData.size)
+			== "table"
+	then
+		local MeshSize =
+			ToVector3(
+				MeshData.meshSize
+			)
+
+		local Size =
+			ToVector3(
+				HandleData.size
+			)
+
 		if
-			Value
-			and Value:IsA("NumberValue")
+			MeshSize.X ~= 0
+			and MeshSize.Y ~= 0
+			and MeshSize.Z ~= 0
 		then
-			Result[Name] =
-				Value.Value
+			return Vector3.new(
+				Size.X
+					/ MeshSize.X,
+
+				Size.Y
+					/ MeshSize.Y,
+
+				Size.Z
+					/ MeshSize.Z
+			)
 		end
 	end
 
-	return Result
-end
-
-local function ExtractHumanoid(
-	Humanoid
-)
-	return {
-		rigType =
-			Humanoid.RigType.Name,
-
-		walkSpeed =
-			Humanoid.WalkSpeed,
-
-		jumpPower =
-			Humanoid.JumpPower,
-
-		jumpHeight =
-			Humanoid.JumpHeight,
-
-		useJumpPower =
-			Humanoid.UseJumpPower,
-
-		hipHeight =
-			Humanoid.HipHeight,
-
-		autoRotate =
-			Humanoid.AutoRotate,
-
-		maxHealth =
-			Humanoid.MaxHealth,
-
-		health =
-			Humanoid.Health,
-
-		nameDisplayDistance =
-			Humanoid.NameDisplayDistance,
-
-		healthDisplayDistance =
-			Humanoid.HealthDisplayDistance,
-
-		displayName =
-			Humanoid.DisplayName,
-
-		scales =
-			ExtractScales(
-				Humanoid
+	if MeshData.scale then
+		return ToVector3(
+			MeshData.scale,
+			Vector3.new(
+				1,
+				1,
+				1
 			)
-	}
-end
-
-local function ExtractCharacter()
-	local Character =
-		Player.Character
-
-	if not Character then
-		return "{}"
+		)
 	end
 
-	local Humanoid =
-		Character:FindFirstChildOfClass(
-			"Humanoid"
+	return Vector3.new(
+		1,
+		1,
+		1
+	)
+end
+
+local function ApplyHandleProperties(
+	Handle,
+	Data
+)
+	if Data.size then
+		Handle.Size =
+			ToVector3(
+				Data.size,
+				Vector3.new(
+					1,
+					1,
+					1
+				)
+			)
+	end
+
+	if Data.color then
+		Handle.Color =
+			ToColor3(
+				Data.color
+			)
+	end
+
+	if Data.transparency ~= nil then
+		Handle.Transparency =
+			Data.transparency
+	end
+
+	if Data.reflectance ~= nil then
+		Handle.Reflectance =
+			Data.reflectance
+	end
+
+	if Data.material then
+		pcall(function()
+			Handle.Material =
+				Enum.Material[
+					Data.material
+				]
+		end)
+	end
+
+	Handle.CanCollide =
+		false
+
+	Handle.CanTouch =
+		false
+
+	Handle.CanQuery =
+		false
+
+	Handle.Massless =
+		true
+end
+
+local function CreateNormalHandle(
+	HandleData
+)
+	local Handle =
+		Instance.new(
+			"Part"
 		)
 
-	if not Humanoid then
-		return "{}"
+	Handle.Name =
+		"Handle"
+
+	ApplyHandleProperties(
+		Handle,
+		HandleData
+	)
+
+	local MeshData =
+		HandleData.mesh
+
+	if
+		type(MeshData) == "table"
+		and MeshData.meshId
+	then
+		local Mesh =
+			Instance.new(
+				"SpecialMesh"
+			)
+
+		Mesh.MeshType =
+			Enum.MeshType.FileMesh
+
+		Mesh.MeshId =
+			MeshData.meshId
+
+		Mesh.TextureId =
+			MeshData.textureId
+			or ""
+
+		Mesh.Scale =
+			GetMeshScale(
+				HandleData,
+				MeshData
+			)
+
+		if MeshData.offset then
+			Mesh.Offset =
+				ToVector3(
+					MeshData.offset
+				)
+		end
+
+		Mesh.Parent =
+			Handle
 	end
 
-	local Avatar = {
-		version = 3,
+	ApplyHandleAttachments(
+		Handle,
+		HandleData.attachments
+	)
 
-		source =
-			"character",
+	return Handle
+end
 
-		sourceRig =
-			Humanoid.RigType.Name,
+local function CreateLayeredHandle(
+	HandleData
+)
+	local Handle
 
-		name =
-			Character.Name,
-
-		bodyMap =
-			ExtractBodyMap(
-				Character,
-				Humanoid
-			),
-
-		bodyParts = {},
-
-		characterMeshes =
-			ExtractCharacterMeshes(
-				Character
-			),
-
-		joints =
-			ExtractJointMap(
-				Character
-			),
-
-		accessories = {},
-
-		clothing =
-			ExtractClothing(
-				Character
-			),
-
-		bodyColors =
-			ExtractBodyColors(
-				Character
-			),
-
-		decals =
-			ExtractDecals(
-				Character
-			),
-
-		animations =
-			ExtractAnimations(
-				Character
-			),
-
-		playingAnimations =
-			ExtractPlayingAnimations(
-				Humanoid
-			),
-
-		humanoid =
-			ExtractHumanoid(
-				Humanoid
+	if
+		type(HandleData.mesh)
+			== "table"
+	then
+		Handle =
+			CreateMeshPart(
+				HandleData.mesh
 			)
-	}
+	end
 
+	if not Handle then
+		return CreateNormalHandle(
+			HandleData
+		)
+	end
+
+	Handle.Name =
+		"Handle"
+
+	ApplyHandleProperties(
+		Handle,
+		HandleData
+	)
+
+	ApplyHandleAttachments(
+		Handle,
+		HandleData.attachments
+	)
+
+	CreateWrapLayer(
+		Handle,
+		HandleData.wrapLayer
+	)
+
+	return Handle
+end
+
+local function ManualWeldAccessory(
+	Character,
+	Humanoid,
+	Accessory,
+	Handle,
+	SavedAttachmentMap
+)
+	local HandleAttachment =
+		Handle:
+			FindFirstChildOfClass(
+				"Attachment"
+			)
+
+	if not HandleAttachment then
+		return false
+	end
+
+	local TargetAttachment =
+		FindCharacterAttachment(
+			Character,
+			HandleAttachment.Name,
+			Accessory
+		)
+
+	if
+		TargetAttachment
+		and TargetAttachment.Parent
+		and TargetAttachment.Parent:
+			IsA("BasePart")
+	then
+		local TargetPart =
+			TargetAttachment.Parent
+
+		Handle.CFrame =
+			TargetPart.CFrame
+			* TargetAttachment.CFrame
+			* HandleAttachment
+				.CFrame:Inverse()
+
+		local Old =
+			Handle:
+				FindFirstChild(
+					"AccessoryWeld"
+				)
+
+		if Old then
+			Old:Destroy()
+		end
+
+		local Weld =
+			Instance.new(
+				"Weld"
+			)
+
+		Weld.Name =
+			"AccessoryWeld"
+
+		Weld.Part0 =
+			Handle
+
+		Weld.Part1 =
+			TargetPart
+
+		Weld.C0 =
+			HandleAttachment.CFrame
+
+		Weld.C1 =
+			TargetAttachment.CFrame
+
+		Weld.Parent =
+			Handle
+
+		return true
+	end
+
+	local Saved =
+		SavedAttachmentMap[
+			HandleAttachment.Name
+		]
+
+	if not Saved then
+		return false
+	end
+
+	local TargetPart =
+		GetFallbackTargetPart(
+			Character,
+			Humanoid,
+			Saved
+		)
+
+	if not TargetPart then
+		return false
+	end
+
+	local TargetCFrame =
+		Saved.cframe
+			and ToCFrame(
+				Saved.cframe
+			)
+			or CFrame.new()
+
+	Handle.CFrame =
+		TargetPart.CFrame
+		* TargetCFrame
+		* HandleAttachment
+			.CFrame:Inverse()
+
+	local Old =
+		Handle:
+			FindFirstChild(
+				"AccessoryWeld"
+			)
+
+	if Old then
+		Old:Destroy()
+	end
+
+	local Weld =
+		Instance.new(
+			"Weld"
+		)
+
+	Weld.Name =
+		"AccessoryWeld"
+
+	Weld.Part0 =
+		Handle
+
+	Weld.Part1 =
+		TargetPart
+
+	Weld.C0 =
+		HandleAttachment.CFrame
+
+	Weld.C1 =
+		TargetCFrame
+
+	Weld.Parent =
+		Handle
+
+	return true
+end
+
+local function CreateAccessory(
+	Character,
+	Humanoid,
+	Data,
+	SavedAttachmentMap
+)
+	if
+		type(Data) ~= "table"
+		or type(Data.handle)
+			~= "table"
+	then
+		return
+	end
+
+	local Accessory =
+		Instance.new(
+			"Accessory"
+		)
+
+	Accessory.Name =
+		Data.name
+		or "Accessory"
+
+	if Data.accessoryType then
+		pcall(function()
+			Accessory.AccessoryType =
+				Enum.AccessoryType[
+					Data.accessoryType
+				]
+		end)
+	end
+
+	local HandleData =
+		Data.handle
+
+	local IsLayered =
+		type(
+			HandleData.wrapLayer
+		) == "table"
+
+	local Handle
+
+	if IsLayered then
+		Handle =
+			CreateLayeredHandle(
+				HandleData
+			)
+	else
+		Handle =
+			CreateNormalHandle(
+				HandleData
+			)
+	end
+
+	if not Handle then
+		Accessory:Destroy()
+		return
+	end
+
+	Handle.Parent =
+		Accessory
+
+	if IsLayered then
+		local Added =
+			pcall(function()
+				Humanoid:
+					AddAccessory(
+						Accessory
+					)
+			end)
+
+		if not Added then
+			Accessory.Parent =
+				Character
+
+			ManualWeldAccessory(
+				Character,
+				Humanoid,
+				Accessory,
+				Handle,
+				SavedAttachmentMap
+			)
+		end
+
+	else
+		Accessory.Parent =
+			Character
+
+		ManualWeldAccessory(
+			Character,
+			Humanoid,
+			Accessory,
+			Handle,
+			SavedAttachmentMap
+		)
+	end
+end
+
+local function ApplyAccessories(
+	Character,
+	Humanoid,
+	Avatar
+)
 	for _, Object in ipairs(
 		Character:GetChildren()
 	) do
-		if Object:IsA("BasePart") then
-			table.insert(
-				Avatar.bodyParts,
-				{
-					type =
-						"actualBodyPart",
-
-					data =
-						EncodeJSON(
-							ExtractBodyPart(
-								Object
-							)
-						)
-				}
-			)
-
-		elseif Object:IsA("Accessory") then
-			table.insert(
-				Avatar.accessories,
-				{
-					type =
-						"actualAccessory",
-
-					data =
-						EncodeJSON(
-							ExtractAccessory(
-								Object
-							)
-						)
-				}
-			)
+		if Object:IsA(
+			"Accessory"
+		) then
+			Object:Destroy()
 		end
 	end
 
-	return HttpService:JSONEncode(
-		{
-			selected =
-				"Extracted",
-
-			avatars = {
-				Extracted =
-					Avatar
-			}
-		}
-	)
-end
-
-local PlayerGui =
-	Player:WaitForChild(
-		"PlayerGui"
-	)
-
-local OldGui =
-	CoreGui:FindFirstChild(
-		"AvatarExtractor"
-	)
-	or PlayerGui:FindFirstChild(
-		"AvatarExtractor"
-	)
-
-if OldGui then
-	OldGui:Destroy()
-end
-
-local Gui =
-	Instance.new(
-		"ScreenGui"
-	)
-
-Gui.Name =
-	"AvatarExtractor"
-
-Gui.ResetOnSpawn =
-	false
-
-Gui.IgnoreGuiInset =
-	true
-
-pcall(function()
-	Gui.Parent =
-		CoreGui
-end)
-
-if not Gui.Parent then
-	Gui.Parent =
-		PlayerGui
-end
-
-local Container =
-	Instance.new(
-		"Frame"
-	)
-
-Container.Name =
-	"Container"
-
-Container.AnchorPoint =
-	Vector2.new(
-		0.5,
-		0.5
-	)
-
-Container.Position =
-	UDim2.fromScale(
-		0.5,
-		0.5
-	)
-
-Container.Size =
-	UDim2.fromOffset(
-		720,
-		470
-	)
-
-Container.BackgroundTransparency =
-	1
-
-Container.Parent =
-	Gui
-
-local TextBox =
-	Instance.new(
-		"TextBox"
-	)
-
-TextBox.Name =
-	"Output"
-
-TextBox.Position =
-	UDim2.fromOffset(
-		0,
-		0
-	)
-
-TextBox.Size =
-	UDim2.new(
-		1,
-		0,
-		1,
-		-50
-	)
-
-TextBox.BackgroundColor3 =
-	Color3.fromRGB(
-		20,
-		20,
-		20
-	)
-
-TextBox.TextColor3 =
-	Color3.fromRGB(
-		235,
-		235,
-		235
-	)
-
-TextBox.BorderSizePixel =
-	0
-
-TextBox.ClearTextOnFocus =
-	false
-
-TextBox.MultiLine =
-	true
-
-TextBox.TextWrapped =
-	false
-
-TextBox.TextXAlignment =
-	Enum.TextXAlignment.Left
-
-TextBox.TextYAlignment =
-	Enum.TextYAlignment.Top
-
-TextBox.Font =
-	Enum.Font.Code
-
-TextBox.TextSize =
-	15
-
-TextBox.Parent =
-	Container
-
-local TextCorner =
-	Instance.new(
-		"UICorner"
-	)
-
-TextCorner.CornerRadius =
-	UDim.new(
-		0,
-		8
-	)
-
-TextCorner.Parent =
-	TextBox
-
-local Padding =
-	Instance.new(
-		"UIPadding"
-	)
-
-Padding.PaddingTop =
-	UDim.new(
-		0,
-		12
-	)
-
-Padding.PaddingBottom =
-	UDim.new(
-		0,
-		12
-	)
-
-Padding.PaddingLeft =
-	UDim.new(
-		0,
-		12
-	)
-
-Padding.PaddingRight =
-	UDim.new(
-		0,
-		12
-	)
-
-Padding.Parent =
-	TextBox
-
-local Refresh =
-	Instance.new(
-		"TextButton"
-	)
-
-Refresh.Name =
-	"Refresh"
-
-Refresh.AnchorPoint =
-	Vector2.new(
-		0.5,
-		1
-	)
-
-Refresh.Position =
-	UDim2.new(
-		0.5,
-		0,
-		1,
-		0
-	)
-
-Refresh.Size =
-	UDim2.fromOffset(
-		150,
-		38
-	)
-
-Refresh.BackgroundColor3 =
-	Color3.fromRGB(
-		35,
-		35,
-		35
-	)
-
-Refresh.TextColor3 =
-	Color3.fromRGB(
-		235,
-		235,
-		235
-	)
-
-Refresh.BorderSizePixel =
-	0
-
-Refresh.Font =
-	Enum.Font.GothamMedium
-
-Refresh.TextSize =
-	14
-
-Refresh.Text =
-	"Refresh"
-
-Refresh.Parent =
-	Container
-
-local RefreshCorner =
-	Instance.new(
-		"UICorner"
-	)
-
-RefreshCorner.CornerRadius =
-	UDim.new(
-		0,
-		8
-	)
-
-RefreshCorner.Parent =
-	Refresh
-
-local function RefreshOutput()
-	TextBox.Text =
-		ExtractCharacter()
-
-	TextBox.CursorPosition =
-		#TextBox.Text + 1
-end
-
-Refresh.MouseButton1Click:Connect(
-	function()
-		Refresh.Text =
-			"Refreshing..."
-
-		task.wait()
-
-		RefreshOutput()
-
-		Refresh.Text =
-			"Refresh"
+	if
+		type(Avatar.accessories)
+			~= "table"
+	then
+		return
 	end
-)
 
-Player.CharacterAdded:Connect(
-	function(Character)
-		Character:WaitForChild(
-			"Humanoid"
+	local SavedAttachmentMap =
+		BuildSavedAttachmentMap(
+			Avatar
 		)
 
-		task.wait(
-			0.75
+	for Index, Entry in ipairs(
+		Avatar.accessories
+	) do
+		if
+			type(Entry) == "table"
+			and Entry.type
+				== "actualAccessory"
+			and Entry.data
+		then
+			local Data =
+				DecodeObject(
+					Entry.data
+				)
+
+			if Data then
+				CreateAccessory(
+					Character,
+					Humanoid,
+					Data,
+					SavedAttachmentMap
+				)
+			end
+		end
+
+		if Index % 2 == 0 then
+			task.wait(
+				0.04
+			)
+		end
+	end
+end
+
+local function ApplyClothing(
+	Character,
+	Avatar
+)
+	for _, Object in ipairs(
+		Character:GetChildren()
+	) do
+		if
+			Object:IsA("Shirt")
+			or Object:IsA("Pants")
+			or Object:IsA(
+				"ShirtGraphic"
+			)
+		then
+			Object:Destroy()
+		end
+	end
+
+	local Clothing =
+		Avatar.clothing
+
+	if type(Clothing) ~= "table" then
+		return
+	end
+
+	if
+		type(Clothing.shirt)
+			== "table"
+		and Clothing.shirt.texture
+	then
+		local Shirt =
+			Instance.new(
+				"Shirt"
+			)
+
+		Shirt.Name =
+			Clothing.shirt.name
+			or "Shirt"
+
+		Shirt.ShirtTemplate =
+			Clothing.shirt.texture
+
+		Shirt.Parent =
+			Character
+	end
+
+	if
+		type(Clothing.pants)
+			== "table"
+		and Clothing.pants.texture
+	then
+		local Pants =
+			Instance.new(
+				"Pants"
+			)
+
+		Pants.Name =
+			Clothing.pants.name
+			or "Pants"
+
+		Pants.PantsTemplate =
+			Clothing.pants.texture
+
+		Pants.Parent =
+			Character
+	end
+
+	if
+		type(Clothing.tshirt)
+			== "table"
+		and Clothing.tshirt.texture
+	then
+		local Graphic =
+			Instance.new(
+				"ShirtGraphic"
+			)
+
+		Graphic.Name =
+			Clothing.tshirt.name
+			or "ShirtGraphic"
+
+		Graphic.Graphic =
+			Clothing.tshirt.texture
+
+		Graphic.Parent =
+			Character
+	end
+end
+
+local function ApplyBodyColors(
+	Character,
+	Avatar
+)
+	local Data =
+		Avatar.bodyColors
+
+	if type(Data) ~= "table" then
+		return
+	end
+
+	local Colors =
+		Character:
+			FindFirstChildOfClass(
+				"BodyColors"
+			)
+
+	if not Colors then
+		Colors =
+			Instance.new(
+				"BodyColors"
+			)
+
+		Colors.Parent =
+			Character
+	end
+
+	if Data.head then
+		Colors.HeadColor3 =
+			ToColor3(
+				Data.head
+			)
+	end
+
+	if Data.torso then
+		Colors.TorsoColor3 =
+			ToColor3(
+				Data.torso
+			)
+	end
+
+	if Data.leftArm then
+		Colors.LeftArmColor3 =
+			ToColor3(
+				Data.leftArm
+			)
+	end
+
+	if Data.rightArm then
+		Colors.RightArmColor3 =
+			ToColor3(
+				Data.rightArm
+			)
+	end
+
+	if Data.leftLeg then
+		Colors.LeftLegColor3 =
+			ToColor3(
+				Data.leftLeg
+			)
+	end
+
+	if Data.rightLeg then
+		Colors.RightLegColor3 =
+			ToColor3(
+				Data.rightLeg
+			)
+	end
+end
+
+local function ApplyDecals(
+	Character,
+	Avatar
+)
+	if
+		type(Avatar.decals)
+			~= "table"
+	then
+		return
+	end
+
+	for _, Existing in ipairs(
+		Character:GetDescendants()
+	) do
+		if Existing:IsA(
+			"Decal"
+		) then
+			Existing:Destroy()
+		end
+	end
+
+	for _, Data in ipairs(
+		Avatar.decals
+	) do
+		if
+			type(Data) == "table"
+			and Data.parent
+		then
+			local Parent =
+				Character:
+					FindFirstChild(
+						Data.parent,
+						true
+					)
+
+			if Parent then
+				local Decal =
+					Instance.new(
+						"Decal"
+					)
+
+				Decal.Name =
+					Data.name
+					or "face"
+
+				Decal.Texture =
+					Data.texture
+					or ""
+
+				if
+					Data.transparency
+						~= nil
+				then
+					Decal.Transparency =
+						Data.transparency
+				end
+
+				if Data.color then
+					Decal.Color3 =
+						ToColor3(
+							Data.color
+						)
+				end
+
+				if Data.face then
+					pcall(function()
+						Decal.Face =
+							Enum.NormalId[
+								Data.face
+							]
+					end)
+				end
+
+				Decal.Parent =
+					Parent
+			end
+		end
+	end
+end
+
+local function ApplyHumanoid(
+	Humanoid,
+	Avatar
+)
+	local Data =
+		Avatar.humanoid
+
+	if type(Data) ~= "table" then
+		return
+	end
+
+	if Data.walkSpeed ~= nil then
+		Humanoid.WalkSpeed =
+			Data.walkSpeed
+	end
+
+	if Data.jumpPower ~= nil then
+		Humanoid.JumpPower =
+			Data.jumpPower
+	end
+
+	if Data.jumpHeight ~= nil then
+		Humanoid.JumpHeight =
+			Data.jumpHeight
+	end
+
+	if Data.useJumpPower ~= nil then
+		Humanoid.UseJumpPower =
+			Data.useJumpPower
+	end
+
+	if Data.hipHeight ~= nil then
+		Humanoid.HipHeight =
+			Data.hipHeight
+	end
+
+	if Data.autoRotate ~= nil then
+		Humanoid.AutoRotate =
+			Data.autoRotate
+	end
+
+	if Data.displayName then
+		pcall(function()
+			Humanoid.DisplayName =
+				Data.displayName
+		end)
+	end
+end
+
+local function ApplyAnimations(
+	Character,
+	Humanoid,
+	Avatar
+)
+	if
+		type(Avatar.animations)
+			~= "table"
+	then
+		return
+	end
+
+	local Animate =
+		Character:
+			FindFirstChild(
+				"Animate"
+			)
+
+	if not Animate then
+		return
+	end
+
+	for _, Saved in ipairs(
+		Avatar.animations
+	) do
+		if
+			Saved.parent
+			and Saved.name
+			and Saved.animationId
+		then
+			local Parent =
+				Animate:
+					FindFirstChild(
+						Saved.parent
+					)
+
+			if Parent then
+				local Animation =
+					Parent:
+						FindFirstChild(
+							Saved.name
+						)
+
+				if
+					Animation
+					and Animation:IsA(
+						"Animation"
+					)
+				then
+					Animation.AnimationId =
+						Saved.animationId
+				end
+			end
+		end
+	end
+
+	local Animator =
+		Humanoid:
+			FindFirstChildOfClass(
+				"Animator"
+			)
+
+	if Animator then
+		for _, Track in ipairs(
+			Animator:
+				GetPlayingAnimationTracks()
+		) do
+			pcall(function()
+				Track:Stop(
+					0.05
+				)
+			end)
+		end
+	end
+end
+
+local Applying =
+	false
+
+local CurrentAvatarName =
+	nil
+
+local function ApplyAvatar(
+	AvatarName
+)
+	if Applying then
+		return false
+	end
+
+	Applying =
+		true
+
+	local Data =
+		LoadData()
+
+	if not Data then
+		Applying =
+			false
+
+		return false
+	end
+
+	local Name =
+		AvatarName
+
+	if
+		type(Name) ~= "string"
+		or Name == ""
+	then
+		Name =
+			Data.selected
+	end
+
+	local Avatar =
+		GetAvatar(
+			Data,
+			Name
 		)
 
-		RefreshOutput()
-	end
-)
+	if not Avatar then
+		Applying =
+			false
 
-RefreshOutput()
+		return false
+	end
+
+	local Character =
+		Player.Character
+		or Player.CharacterAdded:
+			Wait()
+
+	local Humanoid =
+		Character:
+			FindFirstChildOfClass(
+				"Humanoid"
+			)
+
+	if not Humanoid then
+		Humanoid =
+			Character:
+				WaitForChild(
+					"Humanoid",
+					10
+				)
+	end
+
+	if not Humanoid then
+		Applying =
+			false
+
+		return false
+	end
+
+	CurrentAvatarName =
+		Name
+
+	ClearCrossRigVisuals(
+		Character
+	)
+
+	local BodyMode =
+		GetBodyMode(
+			Avatar
+		)
+
+	if BodyMode == "bundle" then
+		local BundleApplied =
+			ApplyBodyBundle(
+				Humanoid,
+				Avatar
+			)
+
+		if BundleApplied then
+			task.wait(
+				0.4
+			)
+
+			Character =
+				Player.Character
+				or Character
+
+			Humanoid =
+				Character:
+					FindFirstChildOfClass(
+						"Humanoid"
+					)
+				or Humanoid
+
+		else
+			ApplyHumanoidScales(
+				Humanoid,
+				Avatar
+			)
+
+			ApplySavedBody(
+				Character,
+				Humanoid,
+				Avatar,
+				"native"
+			)
+		end
+
+	else
+		ApplyHumanoidScales(
+			Humanoid,
+			Avatar
+		)
+
+		ApplySavedBody(
+			Character,
+			Humanoid,
+			Avatar,
+			BodyMode
+		)
+	end
+
+	ApplyHumanoid(
+		Humanoid,
+		Avatar
+	)
+
+	ApplyBodyColors(
+		Character,
+		Avatar
+	)
+
+	ApplyClothing(
+		Character,
+		Avatar
+	)
+
+	ApplyDecals(
+		Character,
+		Avatar
+	)
+
+	ApplyAccessories(
+		Character,
+		Humanoid,
+		Avatar
+	)
+
+	ApplyAnimations(
+		Character,
+		Humanoid,
+		Avatar
+	)
+
+	Applying =
+		false
+
+	return true
+end
+
+if
+	Environment
+		.CatalogServiceCharacterConnection
+then
+	pcall(function()
+		Environment
+			.CatalogServiceCharacterConnection:
+			Disconnect()
+	end)
+end
+
+Environment
+	.CatalogServiceCharacterConnection =
+	Player.CharacterAdded:
+		Connect(function(Character)
+			Character:
+				WaitForChild(
+					"Humanoid"
+				)
+
+			task.wait(
+				0.8
+			)
+
+			if CurrentAvatarName then
+				ApplyAvatar(
+					CurrentAvatarName
+				)
+			end
+		end)
+
+Environment.CatalogServiceApply =
+	ApplyAvatar
+
+return ApplyAvatar
