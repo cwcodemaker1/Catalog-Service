@@ -1,20 +1,20 @@
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
-local InsertService = game:GetService("InsertService")
-local RunService = game:GetService("RunService")
 
 local Player = Players.LocalPlayer
+local Environment = getgenv and getgenv() or _G
+
+local Base64Chars =
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
 local JSON_URLS = {
 	"https://raw.githubusercontent.com/cwcodemaker1/Catalog-Service/main/avatars.json",
 	"https://raw.githubusercontent.com/cwcodemaker1/Catalog-Service/main/src/avatars.json"
 }
 
-local Base64Characters =
-	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
-
 local function Base64Decode(Data)
-	Data = Data:gsub("[^" .. Base64Characters .. "=]", "")
+	Data = tostring(Data or "")
+	Data = Data:gsub("[^" .. Base64Chars .. "=]", "")
 
 	return (
 		Data:gsub(".", function(Character)
@@ -23,7 +23,7 @@ local function Base64Decode(Data)
 			end
 
 			local Position =
-				Base64Characters:find(
+				Base64Chars:find(
 					Character,
 					1,
 					true
@@ -67,54 +67,6 @@ local function Base64Decode(Data)
 	)
 end
 
-local function Vector3FromTable(Data)
-	if type(Data) ~= "table" then
-		return Vector3.zero
-	end
-
-	return Vector3.new(
-		tonumber(Data[1]) or 0,
-		tonumber(Data[2]) or 0,
-		tonumber(Data[3]) or 0
-	)
-end
-
-local function Color3FromTable(Data)
-	if type(Data) ~= "table" then
-		return Color3.new(1, 1, 1)
-	end
-
-	return Color3.new(
-		tonumber(Data[1]) or 1,
-		tonumber(Data[2]) or 1,
-		tonumber(Data[3]) or 1
-	)
-end
-
-local function CFrameFromTable(Data)
-	if type(Data) ~= "table" or #Data < 12 then
-		return CFrame.new()
-	end
-
-	return CFrame.new(
-		Data[1],
-		Data[2],
-		Data[3],
-
-		Data[4],
-		Data[5],
-		Data[6],
-
-		Data[7],
-		Data[8],
-		Data[9],
-
-		Data[10],
-		Data[11],
-		Data[12]
-	)
-end
-
 local function DecodeObject(Data)
 	if type(Data) ~= "string" then
 		return nil
@@ -133,29 +85,84 @@ local function DecodeObject(Data)
 	return nil
 end
 
-local function LoadJSON()
+local function ToVector3(Data, Default)
+	Default = Default or Vector3.zero
+
+	if type(Data) ~= "table" then
+		return Default
+	end
+
+	return Vector3.new(
+		tonumber(Data[1]) or Default.X,
+		tonumber(Data[2]) or Default.Y,
+		tonumber(Data[3]) or Default.Z
+	)
+end
+
+local function ToColor3(Data)
+	if type(Data) ~= "table" then
+		return Color3.new(1, 1, 1)
+	end
+
+	return Color3.new(
+		tonumber(Data[1]) or 1,
+		tonumber(Data[2]) or 1,
+		tonumber(Data[3]) or 1
+	)
+end
+
+local function ToCFrame(Data)
+	if type(Data) ~= "table" or #Data < 12 then
+		return CFrame.new()
+	end
+
+	return CFrame.new(
+		tonumber(Data[1]) or 0,
+		tonumber(Data[2]) or 0,
+		tonumber(Data[3]) or 0,
+
+		tonumber(Data[4]) or 1,
+		tonumber(Data[5]) or 0,
+		tonumber(Data[6]) or 0,
+
+		tonumber(Data[7]) or 0,
+		tonumber(Data[8]) or 1,
+		tonumber(Data[9]) or 0,
+
+		tonumber(Data[10]) or 0,
+		tonumber(Data[11]) or 0,
+		tonumber(Data[12]) or 1
+	)
+end
+
+local function LoadData()
 	if type(readfile) == "function" then
-		local Paths = {
+		local Files = {
 			"avatars.json",
 			"Catalog-Service/avatars.json",
 			"Catalog-Service/src/avatars.json"
 		}
 
-		for _, Path in ipairs(Paths) do
-			local CanRead = true
+		for _, Path in ipairs(Files) do
+			local Exists = true
 
 			if type(isfile) == "function" then
-				CanRead = isfile(Path)
+				Exists = isfile(Path)
 			end
 
-			if CanRead then
-				local Success, Result = pcall(function()
-					return HttpService:JSONDecode(
-						readfile(Path)
-					)
-				end)
+			if Exists then
+				local Success, Result =
+					pcall(function()
+						return HttpService:JSONDecode(
+							readfile(Path)
+						)
+					end)
 
-				if Success and type(Result) == "table" then
+				if
+					Success
+					and type(Result) == "table"
+					and type(Result.avatars) == "table"
+				then
 					return Result
 				end
 			end
@@ -163,17 +170,22 @@ local function LoadJSON()
 	end
 
 	for _, URL in ipairs(JSON_URLS) do
-		local Success, Result = pcall(function()
-			local Source = game:HttpGet(
-				URL
-					.. "?t="
-					.. tostring(os.time())
-			)
+		local Success, Result =
+			pcall(function()
+				return HttpService:JSONDecode(
+					game:HttpGet(
+						URL
+							.. "?v="
+							.. tostring(os.time())
+					)
+				)
+			end)
 
-			return HttpService:JSONDecode(Source)
-		end)
-
-		if Success and type(Result) == "table" then
+		if
+			Success
+			and type(Result) == "table"
+			and type(Result.avatars) == "table"
+		then
 			return Result
 		end
 	end
@@ -181,103 +193,85 @@ local function LoadJSON()
 	return nil
 end
 
-local function GetSelectedAvatar()
-	local JSON = LoadJSON()
-
-	if not JSON then
-		return nil
-	end
-
-	local Name = JSON.selected
-
+local function GetAvatar(Data, AvatarName)
 	if
-		not Name
-		or type(JSON.avatars) ~= "table"
-		or type(JSON.avatars[Name]) ~= "table"
+		type(Data) ~= "table"
+		or type(Data.avatars) ~= "table"
 	then
 		return nil
 	end
 
-	return JSON.avatars[Name]
-end
-
-local function CreateMeshPart(MeshData)
 	if
-		type(MeshData) ~= "table"
-		or not MeshData.meshId
-		or MeshData.meshId == ""
+		type(AvatarName) == "string"
+		and AvatarName ~= ""
 	then
-		return nil
+		return Data.avatars[AvatarName]
 	end
 
-	local Success, Part = pcall(function()
-		return InsertService:CreateMeshPartAsync(
-			MeshData.meshId,
-			Enum.CollisionFidelity.Default,
-			Enum.RenderFidelity.Automatic
-		)
-	end)
-
-	if Success and Part then
-		if MeshData.textureId then
-			pcall(function()
-				Part.TextureID =
-					MeshData.textureId
-			end)
-		end
-
-		if MeshData.doubleSided ~= nil then
-			pcall(function()
-				Part.DoubleSided =
-					MeshData.doubleSided
-			end)
-		end
-
-		return Part
+	if
+		Data.selected
+		and Data.avatars[Data.selected]
+	then
+		return Data.avatars[Data.selected]
 	end
 
 	return nil
 end
 
-local function ApplyAttachments(Part, Attachments)
+local function ApplyAttachmentData(
+	Part,
+	Attachments
+)
 	if type(Attachments) ~= "table" then
 		return
 	end
 
 	for _, Data in ipairs(Attachments) do
-		if Data.name then
-			local Attachment =
-				Part:FindFirstChild(Data.name)
+		if
+			type(Data) == "table"
+			and Data.name
+		then
+			local Existing =
+				Part:FindFirstChild(
+					Data.name
+				)
 
 			if
-				not Attachment
-				or not Attachment:IsA("Attachment")
+				Existing
+				and not Existing:IsA("Attachment")
 			then
-				if Attachment then
-					Attachment:Destroy()
-				end
+				Existing:Destroy()
+				Existing = nil
+			end
 
+			local Attachment = Existing
+
+			if not Attachment then
 				Attachment =
 					Instance.new("Attachment")
 
-				Attachment.Name = Data.name
-				Attachment.Parent = Part
+				Attachment.Name =
+					Data.name
+
+				Attachment.Parent =
+					Part
 			end
 
 			if Data.cframe then
 				Attachment.CFrame =
-					CFrameFromTable(
+					ToCFrame(
 						Data.cframe
 					)
+
 			elseif Data.position then
 				Attachment.Position =
-					Vector3FromTable(
+					ToVector3(
 						Data.position
 					)
 
 				if Data.orientation then
 					Attachment.Orientation =
-						Vector3FromTable(
+						ToVector3(
 							Data.orientation
 						)
 				end
@@ -286,7 +280,7 @@ local function ApplyAttachments(Part, Attachments)
 	end
 end
 
-local function FindCharacterAttachment(
+local function FindTargetAttachment(
 	Character,
 	Name,
 	Ignore
@@ -297,7 +291,10 @@ local function FindCharacterAttachment(
 		if
 			Object:IsA("Attachment")
 			and Object.Name == Name
-			and not Object:IsDescendantOf(Ignore)
+			and (
+				not Ignore
+				or not Object:IsDescendantOf(Ignore)
+			)
 		then
 			return Object
 		end
@@ -306,7 +303,7 @@ local function FindCharacterAttachment(
 	return nil
 end
 
-local function ManualAccessoryWeld(
+local function WeldAccessory(
 	Character,
 	Accessory,
 	Handle
@@ -320,48 +317,55 @@ local function ManualAccessoryWeld(
 		return
 	end
 
-	local Target =
-		FindCharacterAttachment(
+	local TargetAttachment =
+		FindTargetAttachment(
 			Character,
 			HandleAttachment.Name,
 			Accessory
 		)
 
 	if
-		not Target
-		or not Target.Parent
-		or not Target.Parent:IsA("BasePart")
+		not TargetAttachment
+		or not TargetAttachment.Parent
+		or not TargetAttachment.Parent:IsA("BasePart")
 	then
 		return
 	end
 
-	local Existing =
+	local TargetPart =
+		TargetAttachment.Parent
+
+	Handle.CFrame =
+		TargetPart.CFrame
+		* TargetAttachment.CFrame
+		* HandleAttachment.CFrame:Inverse()
+
+	local Old =
 		Handle:FindFirstChild(
 			"AccessoryWeld"
 		)
 
-	if Existing then
-		Existing:Destroy()
+	if Old then
+		Old:Destroy()
 	end
 
 	local Weld = Instance.new("Weld")
-	Weld.Name = "AccessoryWeld"
 
+	Weld.Name = "AccessoryWeld"
 	Weld.Part0 = Handle
-	Weld.Part1 = Target.Parent
+	Weld.Part1 = TargetPart
 
 	Weld.C0 =
 		HandleAttachment.CFrame
 
 	Weld.C1 =
-		Target.CFrame
+		TargetAttachment.CFrame
 
 	Weld.Parent = Handle
 end
 
 local function CreateAccessory(
 	Character,
-	Humanoid,
 	Data
 )
 	if
@@ -370,6 +374,9 @@ local function CreateAccessory(
 	then
 		return
 	end
+
+	local HandleData =
+		Data.handle
 
 	local Accessory =
 		Instance.new("Accessory")
@@ -387,70 +394,25 @@ local function CreateAccessory(
 		end)
 	end
 
-	local HandleData = Data.handle
-	local Handle
-
-	if
-		type(HandleData.mesh) == "table"
-		and HandleData.mesh.meshId
-		and HandleData.mesh.meshId ~= ""
-	then
-		Handle =
-			CreateMeshPart(
-				HandleData.mesh
-			)
-	end
-
-	if not Handle then
-		Handle = Instance.new("Part")
-
-		if
-			type(HandleData.mesh) == "table"
-			and HandleData.mesh.meshId
-		then
-			local Mesh =
-				Instance.new("SpecialMesh")
-
-			Mesh.MeshType =
-				Enum.MeshType.FileMesh
-
-			Mesh.MeshId =
-				HandleData.mesh.meshId
-
-			Mesh.TextureId =
-				HandleData.mesh.textureId
-				or ""
-
-			if HandleData.mesh.scale then
-				Mesh.Scale =
-					Vector3FromTable(
-						HandleData.mesh.scale
-					)
-			end
-
-			if HandleData.mesh.offset then
-				Mesh.Offset =
-					Vector3FromTable(
-						HandleData.mesh.offset
-					)
-			end
-
-			Mesh.Parent = Handle
-		end
-	end
+	local Handle =
+		Instance.new("Part")
 
 	Handle.Name = "Handle"
 
-	if HandleData.size then
-		Handle.Size =
-			Vector3FromTable(
-				HandleData.size
-			)
-	end
+	Handle.Size =
+		ToVector3(
+			HandleData.size,
+			Vector3.new(1, 1, 1)
+		)
+
+	Handle.CanCollide = false
+	Handle.CanTouch = false
+	Handle.CanQuery = false
+	Handle.Massless = true
 
 	if HandleData.color then
 		Handle.Color =
-			Color3FromTable(
+			ToColor3(
 				HandleData.color
 			)
 	end
@@ -474,51 +436,68 @@ local function CreateAccessory(
 		end)
 	end
 
-	Handle.CanCollide = false
-	Handle.CanTouch = false
-	Handle.CanQuery = false
-	Handle.Massless = true
+	local MeshData =
+		HandleData.mesh
 
-	ApplyAttachments(
+	if
+		type(MeshData) == "table"
+		and type(MeshData.meshId) == "string"
+		and MeshData.meshId ~= ""
+	then
+		local Mesh =
+			Instance.new("SpecialMesh")
+
+		Mesh.MeshType =
+			Enum.MeshType.FileMesh
+
+		Mesh.MeshId =
+			MeshData.meshId
+
+		Mesh.TextureId =
+			MeshData.textureId
+			or ""
+
+		if MeshData.scale then
+			Mesh.Scale =
+				ToVector3(
+					MeshData.scale,
+					Vector3.new(1, 1, 1)
+				)
+		else
+			Mesh.Scale =
+				Vector3.new(1, 1, 1)
+		end
+
+		if MeshData.offset then
+			Mesh.Offset =
+				ToVector3(
+					MeshData.offset
+				)
+		end
+
+		Mesh.Parent = Handle
+	end
+
+	ApplyAttachmentData(
 		Handle,
 		HandleData.attachments
 	)
 
-	Handle.Parent = Accessory
+	Handle.Parent =
+		Accessory
 
-	local Success =
-		pcall(function()
-			Humanoid:AddAccessory(
-				Accessory
-			)
-		end)
+	Accessory.Parent =
+		Character
 
-	if not Success then
-		Accessory.Parent = Character
-	end
-
-	if not Accessory.Parent then
-		Accessory.Parent = Character
-	end
-
-	RunService.Heartbeat:Wait()
-
-	if
-		not Handle:FindFirstChild(
-			"AccessoryWeld"
-		)
-	then
-		ManualAccessoryWeld(
-			Character,
-			Accessory,
-			Handle
-		)
-	end
+	WeldAccessory(
+		Character,
+		Accessory,
+		Handle
+	)
 end
 
 local function ApplyAccessories(
 	Character,
-	Humanoid,
 	Avatar
 )
 	for _, Object in ipairs(
@@ -533,11 +512,12 @@ local function ApplyAccessories(
 		return
 	end
 
-	for _, Entry in ipairs(
+	for Index, Entry in ipairs(
 		Avatar.accessories
 	) do
 		if
-			Entry.type == "actualAccessory"
+			type(Entry) == "table"
+			and Entry.type == "actualAccessory"
 			and Entry.data
 		then
 			local Data =
@@ -548,15 +528,18 @@ local function ApplyAccessories(
 			if Data then
 				CreateAccessory(
 					Character,
-					Humanoid,
 					Data
 				)
 			end
 		end
+
+		if Index % 3 == 0 then
+			task.wait()
+		end
 	end
 end
 
-local function ApplyClassicClothing(
+local function ApplyClothing(
 	Character,
 	Avatar
 )
@@ -572,7 +555,8 @@ local function ApplyClassicClothing(
 		end
 	end
 
-	local Clothing = Avatar.clothing
+	local Clothing =
+		Avatar.clothing
 
 	if type(Clothing) ~= "table" then
 		return
@@ -582,7 +566,8 @@ local function ApplyClassicClothing(
 		type(Clothing.shirt) == "table"
 		and Clothing.shirt.texture
 	then
-		local Shirt = Instance.new("Shirt")
+		local Shirt =
+			Instance.new("Shirt")
 
 		Shirt.Name =
 			Clothing.shirt.name
@@ -591,14 +576,16 @@ local function ApplyClassicClothing(
 		Shirt.ShirtTemplate =
 			Clothing.shirt.texture
 
-		Shirt.Parent = Character
+		Shirt.Parent =
+			Character
 	end
 
 	if
 		type(Clothing.pants) == "table"
 		and Clothing.pants.texture
 	then
-		local Pants = Instance.new("Pants")
+		local Pants =
+			Instance.new("Pants")
 
 		Pants.Name =
 			Clothing.pants.name
@@ -607,24 +594,26 @@ local function ApplyClassicClothing(
 		Pants.PantsTemplate =
 			Clothing.pants.texture
 
-		Pants.Parent = Character
+		Pants.Parent =
+			Character
 	end
 
 	if
 		type(Clothing.tshirt) == "table"
 		and Clothing.tshirt.texture
 	then
-		local Graphic =
+		local ShirtGraphic =
 			Instance.new("ShirtGraphic")
 
-		Graphic.Name =
+		ShirtGraphic.Name =
 			Clothing.tshirt.name
-			or "Shirt Graphic"
+			or "ShirtGraphic"
 
-		Graphic.Graphic =
+		ShirtGraphic.Graphic =
 			Clothing.tshirt.texture
 
-		Graphic.Parent = Character
+		ShirtGraphic.Parent =
+			Character
 	end
 end
 
@@ -632,150 +621,58 @@ local function ApplyBodyColors(
 	Character,
 	Avatar
 )
-	local Data = Avatar.bodyColors
+	local Data =
+		Avatar.bodyColors
 
 	if type(Data) ~= "table" then
 		return
 	end
 
-	local BodyColors =
+	local Colors =
 		Character:FindFirstChildOfClass(
 			"BodyColors"
 		)
 
-	if not BodyColors then
-		BodyColors =
+	if not Colors then
+		Colors =
 			Instance.new("BodyColors")
 
-		BodyColors.Parent = Character
+		Colors.Parent =
+			Character
 	end
 
 	if Data.head then
-		BodyColors.HeadColor3 =
-			Color3FromTable(Data.head)
+		Colors.HeadColor3 =
+			ToColor3(Data.head)
 	end
 
 	if Data.torso then
-		BodyColors.TorsoColor3 =
-			Color3FromTable(Data.torso)
+		Colors.TorsoColor3 =
+			ToColor3(Data.torso)
 	end
 
 	if Data.leftArm then
-		BodyColors.LeftArmColor3 =
-			Color3FromTable(Data.leftArm)
+		Colors.LeftArmColor3 =
+			ToColor3(Data.leftArm)
 	end
 
 	if Data.rightArm then
-		BodyColors.RightArmColor3 =
-			Color3FromTable(Data.rightArm)
+		Colors.RightArmColor3 =
+			ToColor3(Data.rightArm)
 	end
 
 	if Data.leftLeg then
-		BodyColors.LeftLegColor3 =
-			Color3FromTable(Data.leftLeg)
+		Colors.LeftLegColor3 =
+			ToColor3(Data.leftLeg)
 	end
 
 	if Data.rightLeg then
-		BodyColors.RightLegColor3 =
-			Color3FromTable(Data.rightLeg)
+		Colors.RightLegColor3 =
+			ToColor3(Data.rightLeg)
 	end
 end
 
-local function ApplyBodyPart(
-	Character,
-	Data
-)
-	if
-		type(Data) ~= "table"
-		or not Data.name
-	then
-		return
-	end
-
-	local Part =
-		Character:FindFirstChild(
-			Data.name
-		)
-
-	if
-		not Part
-		or not Part:IsA("BasePart")
-	then
-		return
-	end
-
-	if Data.name ~= "HumanoidRootPart" then
-		if Data.size then
-			Part.Size =
-				Vector3FromTable(
-					Data.size
-				)
-		end
-
-		if Data.color then
-			Part.Color =
-				Color3FromTable(
-					Data.color
-				)
-		end
-
-		if Data.transparency ~= nil then
-			Part.Transparency =
-				Data.transparency
-		end
-
-		if Data.reflectance ~= nil then
-			Part.Reflectance =
-				Data.reflectance
-		end
-
-		if Data.material then
-			pcall(function()
-				Part.Material =
-					Enum.Material[
-						Data.material
-					]
-			end)
-		end
-
-		if
-			Part:IsA("MeshPart")
-			and type(Data.mesh) == "table"
-			and Data.mesh.meshId
-			and Data.mesh.meshId ~= ""
-		then
-			local Source =
-				CreateMeshPart(
-					Data.mesh
-				)
-
-			if Source then
-				pcall(function()
-					Part:ApplyMesh(Source)
-				end)
-
-				Source:Destroy()
-
-				if Data.size then
-					Part.Size =
-						Vector3FromTable(
-							Data.size
-						)
-				end
-			end
-		end
-	end
-
-	ApplyAttachments(
-		Part,
-		Data.attachments
-	)
-
-	-- Intentionally NOT applying Data.cframe.
-	-- That is the old WORLD position from extraction.
-end
-
-local function ApplyBodyParts(
+local function ApplyBodyPartProperties(
 	Character,
 	Avatar
 )
@@ -783,23 +680,12 @@ local function ApplyBodyParts(
 		return
 	end
 
-	local Humanoid =
-		Character:FindFirstChildOfClass(
-			"Humanoid"
-		)
-
-	if Humanoid then
-		pcall(function()
-			Humanoid.AutomaticScalingEnabled =
-				false
-		end)
-	end
-
 	for _, Entry in ipairs(
 		Avatar.bodyParts
 	) do
 		if
-			Entry.type == "actualBodyPart"
+			type(Entry) == "table"
+			and Entry.type == "actualBodyPart"
 			and Entry.data
 		then
 			local Data =
@@ -807,11 +693,120 @@ local function ApplyBodyParts(
 					Entry.data
 				)
 
-			if Data then
-				ApplyBodyPart(
-					Character,
-					Data
+			if
+				Data
+				and Data.name
+				and Data.name ~= "HumanoidRootPart"
+			then
+				local Part =
+					Character:FindFirstChild(
+						Data.name
+					)
+
+				if
+					Part
+					and Part:IsA("BasePart")
+				then
+					if Data.color then
+						Part.Color =
+							ToColor3(
+								Data.color
+							)
+					end
+
+					if Data.transparency ~= nil then
+						Part.Transparency =
+							Data.transparency
+					end
+
+					if Data.reflectance ~= nil then
+						Part.Reflectance =
+							Data.reflectance
+					end
+
+					if Data.material then
+						pcall(function()
+							Part.Material =
+								Enum.Material[
+									Data.material
+								]
+						end)
+					end
+
+					ApplyAttachmentData(
+						Part,
+						Data.attachments
+					)
+				end
+			end
+		end
+	end
+end
+
+local function ApplyDecals(
+	Character,
+	Avatar
+)
+	if type(Avatar.decals) ~= "table" then
+		return
+	end
+
+	for _, Existing in ipairs(
+		Character:GetDescendants()
+	) do
+		if Existing:IsA("Decal") then
+			Existing:Destroy()
+		end
+	end
+
+	for _, Data in ipairs(
+		Avatar.decals
+	) do
+		if
+			type(Data) == "table"
+			and Data.parent
+		then
+			local Parent =
+				Character:FindFirstChild(
+					Data.parent,
+					true
 				)
+
+			if Parent then
+				local Decal =
+					Instance.new("Decal")
+
+				Decal.Name =
+					Data.name
+					or "face"
+
+				Decal.Texture =
+					Data.texture
+					or ""
+
+				if Data.transparency ~= nil then
+					Decal.Transparency =
+						Data.transparency
+				end
+
+				if Data.color then
+					Decal.Color3 =
+						ToColor3(
+							Data.color
+						)
+				end
+
+				if Data.face then
+					pcall(function()
+						Decal.Face =
+							Enum.NormalId[
+								Data.face
+							]
+					end)
+				end
+
+				Decal.Parent =
+					Parent
 			end
 		end
 	end
@@ -821,7 +816,8 @@ local function ApplyHumanoid(
 	Humanoid,
 	Avatar
 )
-	local Data = Avatar.humanoid
+	local Data =
+		Avatar.humanoid
 
 	if type(Data) ~= "table" then
 		return
@@ -886,16 +882,25 @@ local function ApplyAnimations(
 	for _, Saved in ipairs(
 		Avatar.animations
 	) do
-		if Saved.animationId then
-			for _, Animation in ipairs(
-				Animate:GetDescendants()
-			) do
+		if
+			Saved.parent
+			and Saved.name
+			and Saved.animationId
+		then
+			local Parent =
+				Animate:FindFirstChild(
+					Saved.parent
+				)
+
+			if Parent then
+				local Animation =
+					Parent:FindFirstChild(
+						Saved.name
+					)
+
 				if
-					Animation:IsA("Animation")
-					and Animation.Name == Saved.name
-					and Animation.Parent
-					and Animation.Parent.Name
-						== Saved.parent
+					Animation
+					and Animation:IsA("Animation")
 				then
 					Animation.AnimationId =
 						Saved.animationId
@@ -914,94 +919,55 @@ local function ApplyAnimations(
 			Animator:GetPlayingAnimationTracks()
 		) do
 			pcall(function()
-				Track:Stop(0)
+				Track:Stop(0.05)
 			end)
 		end
 	end
 end
 
-local function ApplyDecals(
-	Character,
-	Avatar
-)
-	if type(Avatar.decals) ~= "table" then
-		return
-	end
-
-	for _, Object in ipairs(
-		Character:GetDescendants()
-	) do
-		if Object:IsA("Decal") then
-			Object:Destroy()
-		end
-	end
-
-	for _, Data in ipairs(
-		Avatar.decals
-	) do
-		local Parent =
-			Character:FindFirstChild(
-				Data.parent,
-				true
-			)
-
-		if Parent then
-			local Decal =
-				Instance.new("Decal")
-
-			Decal.Name =
-				Data.name
-				or "face"
-
-			Decal.Texture =
-				Data.texture
-				or ""
-
-			if Data.transparency ~= nil then
-				Decal.Transparency =
-					Data.transparency
-			end
-
-			if Data.color then
-				Decal.Color3 =
-					Color3FromTable(
-						Data.color
-					)
-			end
-
-			if Data.face then
-				pcall(function()
-					Decal.Face =
-						Enum.NormalId[
-							Data.face
-						]
-				end)
-			end
-
-			Decal.Parent = Parent
-		end
-	end
-end
-
 local Applying = false
+local CurrentAvatarName = nil
 
-local function ApplyAvatar()
+local function ApplyAvatar(AvatarName)
 	if Applying then
-		return
+		return false
 	end
 
 	Applying = true
 
+	local Data =
+		LoadData()
+
+	if not Data then
+		Applying = false
+		return false
+	end
+
+	local Name =
+		AvatarName
+
+	if
+		type(Name) ~= "string"
+		or Name == ""
+	then
+		Name =
+			Data.selected
+	end
+
 	local Avatar =
-		GetSelectedAvatar()
+		GetAvatar(
+			Data,
+			Name
+		)
+
+	if not Avatar then
+		Applying = false
+		return false
+	end
 
 	local Character =
 		Player.Character
-
-	if not Avatar or not Character then
-		Applying = false
-		return
-	end
+		or Player.CharacterAdded:Wait()
 
 	local Humanoid =
 		Character:FindFirstChildOfClass(
@@ -1009,17 +975,22 @@ local function ApplyAvatar()
 		)
 
 	if not Humanoid then
-		Applying = false
-		return
+		Humanoid =
+			Character:WaitForChild(
+				"Humanoid",
+				10
+			)
 	end
+
+	if not Humanoid then
+		Applying = false
+		return false
+	end
+
+	CurrentAvatarName = Name
 
 	ApplyHumanoid(
 		Humanoid,
-		Avatar
-	)
-
-	ApplyBodyParts(
-		Character,
 		Avatar
 	)
 
@@ -1028,7 +999,12 @@ local function ApplyAvatar()
 		Avatar
 	)
 
-	ApplyClassicClothing(
+	ApplyBodyPartProperties(
+		Character,
+		Avatar
+	)
+
+	ApplyClothing(
 		Character,
 		Avatar
 	)
@@ -1040,7 +1016,6 @@ local function ApplyAvatar()
 
 	ApplyAccessories(
 		Character,
-		Humanoid,
 		Avatar
 	)
 
@@ -1051,22 +1026,31 @@ local function ApplyAvatar()
 	)
 
 	Applying = false
+
+	return true
 end
 
-local Character =
-	Player.Character
-	or Player.CharacterAdded:Wait()
+if Environment.CatalogServiceCharacterConnection then
+	pcall(function()
+		Environment.CatalogServiceCharacterConnection:Disconnect()
+	end)
+end
 
-Character:WaitForChild("Humanoid")
+Environment.CatalogServiceCharacterConnection =
+	Player.CharacterAdded:Connect(
+		function(Character)
+			Character:WaitForChild(
+				"Humanoid"
+			)
 
-task.wait(1)
+			task.wait(0.75)
 
-ApplyAvatar()
+			if CurrentAvatarName then
+				ApplyAvatar(
+					CurrentAvatarName
+				)
+			end
+		end
+	)
 
-Player.CharacterAdded:Connect(function(NewCharacter)
-	NewCharacter:WaitForChild("Humanoid")
-
-	task.wait(1)
-
-	ApplyAvatar()
-end)
+return ApplyAvatar
