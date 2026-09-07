@@ -286,111 +286,179 @@ local function GetAvatar(
 	return nil
 end
 
-local function GetScaleData(
+local function GetAvatarScales(
 	Avatar
 )
-	if
+	local Profile =
 		type(Avatar.sizeProfile)
 			== "table"
-		and type(
-			Avatar.sizeProfile.scales
-		) == "table"
-	then
-		return Avatar.sizeProfile.scales
-	end
+			and Avatar.sizeProfile
+			or {}
 
-	if
+	local HumanoidData =
 		type(Avatar.humanoid)
 			== "table"
-		and type(
-			Avatar.humanoid.scales
-		) == "table"
-	then
-		return Avatar.humanoid.scales
+			and Avatar.humanoid
+			or {}
+
+	local Scales = {}
+
+	if type(Profile.scales) == "table" then
+		Scales =
+			Profile.scales
+
+	elseif type(HumanoidData.scales) == "table" then
+		Scales =
+			HumanoidData.scales
 	end
 
-	return {}
+	return {
+		Height =
+			tonumber(
+				Scales.BodyHeightScale
+				or Profile.heightScale
+			)
+			or 1,
+
+		Width =
+			tonumber(
+				Scales.BodyWidthScale
+				or Profile.widthScale
+			)
+			or 1,
+
+		Depth =
+			tonumber(
+				Scales.BodyDepthScale
+				or Profile.depthScale
+			)
+			or 1,
+
+		Head =
+			tonumber(
+				Scales.HeadScale
+				or Profile.headScale
+			)
+			or 1,
+
+		BodyType =
+			tonumber(
+				Scales.BodyTypeScale
+				or Profile.bodyTypeScale
+			)
+			or 0,
+
+		Proportion =
+			tonumber(
+				Scales.BodyProportionScale
+				or Profile.bodyProportionScale
+			)
+			or 0
+	}
 end
 
 local function ApplyDescriptionScales(
 	Description,
 	Avatar
 )
-	local Scales =
-		GetScaleData(Avatar)
+	local Scale =
+		GetAvatarScales(
+			Avatar
+		)
 
-	if Scales.BodyHeightScale then
-		Description.HeightScale =
-			Scales.BodyHeightScale
+	Description.HeightScale =
+		Scale.Height
+
+	Description.WidthScale =
+		Scale.Width
+
+	Description.DepthScale =
+		Scale.Depth
+
+	Description.HeadScale =
+		Scale.Head
+
+	Description.BodyTypeScale =
+		Scale.BodyType
+
+	Description.ProportionScale =
+		Scale.Proportion
+end
+
+local function SetScaleValue(
+	Humanoid,
+	Name,
+	Value
+)
+	local Scale =
+		Humanoid:FindFirstChild(
+			Name
+		)
+
+	if
+		Scale
+		and Scale:IsA(
+			"NumberValue"
+		)
+	then
+		Scale.Value =
+			Value
+
+		return true
 	end
 
-	if Scales.BodyWidthScale then
-		Description.WidthScale =
-			Scales.BodyWidthScale
-	end
-
-	if Scales.BodyDepthScale then
-		Description.DepthScale =
-			Scales.BodyDepthScale
-	end
-
-	if Scales.HeadScale then
-		Description.HeadScale =
-			Scales.HeadScale
-	end
-
-	if Scales.BodyTypeScale then
-		Description.BodyTypeScale =
-			Scales.BodyTypeScale
-	end
-
-	if Scales.BodyProportionScale then
-		Description.ProportionScale =
-			Scales.BodyProportionScale
-	end
+	return false
 end
 
 local function ApplyHumanoidScales(
 	Humanoid,
 	Avatar
 )
-	local Scales =
-		GetScaleData(Avatar)
+	local Scale =
+		GetAvatarScales(
+			Avatar
+		)
 
-	if
-		type(Avatar.sizeProfile)
-			== "table"
-		and Avatar.sizeProfile
-			.automaticScalingEnabled
-			~= nil
-	then
-		pcall(function()
-			Humanoid.AutomaticScalingEnabled =
-				Avatar.sizeProfile
-					.automaticScalingEnabled
-		end)
-	end
+	pcall(function()
+		Humanoid.AutomaticScalingEnabled =
+			true
+	end)
 
-	for Name, Value in pairs(
-		Scales
-	) do
-		if type(Value) == "number" then
-			local Scale =
-				Humanoid:FindFirstChild(
-					Name
-				)
+	SetScaleValue(
+		Humanoid,
+		"BodyHeightScale",
+		Scale.Height
+	)
 
-			if
-				Scale
-				and Scale:IsA(
-					"NumberValue"
-				)
-			then
-				Scale.Value =
-					Value
-			end
-		end
-	end
+	SetScaleValue(
+		Humanoid,
+		"BodyWidthScale",
+		Scale.Width
+	)
+
+	SetScaleValue(
+		Humanoid,
+		"BodyDepthScale",
+		Scale.Depth
+	)
+
+	SetScaleValue(
+		Humanoid,
+		"HeadScale",
+		Scale.Head
+	)
+
+	SetScaleValue(
+		Humanoid,
+		"BodyTypeScale",
+		Scale.BodyType
+	)
+
+	SetScaleValue(
+		Humanoid,
+		"BodyProportionScale",
+		Scale.Proportion
+	)
 
 	if
 		type(Avatar.sizeProfile)
@@ -401,6 +469,56 @@ local function ApplyHumanoidScales(
 		Humanoid.HipHeight =
 			Avatar.sizeProfile
 				.hipHeight
+	end
+end
+
+local function ForceHumanoidScales(
+	Humanoid,
+	Avatar
+)
+	local Scale =
+		GetAvatarScales(
+			Avatar
+		)
+
+	for _ = 1, 8 do
+		SetScaleValue(
+			Humanoid,
+			"BodyHeightScale",
+			Scale.Height
+		)
+
+		SetScaleValue(
+			Humanoid,
+			"BodyWidthScale",
+			Scale.Width
+		)
+
+		SetScaleValue(
+			Humanoid,
+			"BodyDepthScale",
+			Scale.Depth
+		)
+
+		SetScaleValue(
+			Humanoid,
+			"HeadScale",
+			Scale.Head
+		)
+
+		SetScaleValue(
+			Humanoid,
+			"BodyTypeScale",
+			Scale.BodyType
+		)
+
+		SetScaleValue(
+			Humanoid,
+			"BodyProportionScale",
+			Scale.Proportion
+		)
+
+		task.wait()
 	end
 end
 
@@ -430,7 +548,9 @@ local function NormalizeAssetType(
 
 	if AssetType ~= nil then
 		local String =
-			tostring(AssetType)
+			tostring(
+				AssetType
+			)
 
 		return String:match(
 			"([%w]+)$"
@@ -462,16 +582,6 @@ local function BundleItemProperty(
 				or ""
 			)
 		)
-
-	if
-		Name:find(
-			"dynamic head",
-			1,
-			true
-		)
-	then
-		return "Head"
-	end
 
 	if
 		Name:find(
@@ -604,11 +714,6 @@ local function ApplyBodyBundle(
 			)
 	end
 
-	pcall(function()
-		Description.UseAvatarSettings =
-			false
-	end)
-
 	local Found = false
 
 	local Items =
@@ -640,11 +745,13 @@ local function ApplyBodyBundle(
 					pcall(function()
 						Description[
 							Property
-						] = AssetId
+						] =
+							AssetId
 					end)
 
 				if Applied then
-					Found = true
+					Found =
+						true
 				end
 			end
 		end
@@ -660,19 +767,43 @@ local function ApplyBodyBundle(
 		Avatar
 	)
 
-	local Applied =
-		pcall(function()
-			Humanoid:
-				ApplyDescriptionResetAsync(
-					Description
-				)
-		end)
+	local Applied = false
+
+	if not Applied then
+		Applied =
+			pcall(function()
+				Humanoid:
+					ApplyDescriptionResetAsync(
+						Description
+					)
+			end)
+	end
 
 	if not Applied then
 		Applied =
 			pcall(function()
 				Humanoid:
 					ApplyDescriptionAsync(
+						Description
+					)
+			end)
+	end
+
+	if not Applied then
+		Applied =
+			pcall(function()
+				Humanoid:
+					ApplyDescriptionReset(
+						Description
+					)
+			end)
+	end
+
+	if not Applied then
+		Applied =
+			pcall(function()
+				Humanoid:
+					ApplyDescription(
 						Description
 					)
 			end)
@@ -757,7 +888,9 @@ local function CreateSurfaceAppearance(
 				Surface[
 					Property
 				] =
-					Data[Property]
+					Data[
+						Property
+					]
 			end)
 		end
 	end
@@ -1101,17 +1234,27 @@ local function ApplyMeshToPart(
 	return true
 end
 
-local R6TargetNames = {
-	Head = "Head",
-	Torso = "Torso",
+local R6Targets = {
+	Head =
+		"Head",
 
-	LeftArm = "Left Arm",
-	RightArm = "Right Arm",
+	Torso =
+		"Torso",
 
-	LeftLeg = "Left Leg",
-	RightLeg = "Right Leg",
+	LeftArm =
+		"Left Arm",
 
-	Root = "HumanoidRootPart"
+	RightArm =
+		"Right Arm",
+
+	LeftLeg =
+		"Left Leg",
+
+	RightLeg =
+		"Right Leg",
+
+	Root =
+		"HumanoidRootPart"
 }
 
 local function ApplySameRigBody(
@@ -1123,7 +1266,10 @@ local function ApplySameRigBody(
 	for Name, Data in pairs(
 		BodyData
 	) do
-		if Name ~= "HumanoidRootPart" then
+		if
+			Name
+			~= "HumanoidRootPart"
+		then
 			local Part =
 				Character:
 					FindFirstChild(
@@ -1150,7 +1296,9 @@ local function ApplySameRigBody(
 			Index += 1
 
 			if Index % 2 == 0 then
-				task.wait(0.04)
+				task.wait(
+					0.04
+				)
 			end
 		end
 	end
@@ -1215,7 +1363,7 @@ local function ClearCrossRigVisuals(
 	end
 end
 
-local function ApplyCrossRigBody(
+local function ApplyR15BodyToR6(
 	Character,
 	BodyData
 )
@@ -1224,7 +1372,9 @@ local function ApplyCrossRigBody(
 	)
 
 	local Folder =
-		Instance.new("Folder")
+		Instance.new(
+			"Folder"
+		)
 
 	Folder.Name =
 		"CatalogBodyVisuals"
@@ -1243,13 +1393,12 @@ local function ApplyCrossRigBody(
 	for _, Slot in ipairs(
 		Slots
 	) do
-		local TargetName =
-			R6TargetNames[Slot]
-
 		local Target =
 			Character:
 				FindFirstChild(
-					TargetName
+					R6Targets[
+						Slot
+					]
 				)
 
 		if
@@ -1278,15 +1427,18 @@ local function ApplyCrossRigBody(
 						Anchor.cframe
 					)
 
+				Target.Transparency =
+					1
+
 				for _, Data in ipairs(
 					Parts
 				) do
 					if
-						type(Data.mesh)
+						Data.cframe
+						and type(Data.mesh)
 							== "table"
 						and Data.mesh.meshType
 							== "MeshPart"
-						and Data.cframe
 					then
 						local Visual =
 							CreateMeshPart(
@@ -1315,7 +1467,7 @@ local function ApplyCrossRigBody(
 							Visual.Massless =
 								true
 
-							local SourceCF =
+							local SourceCFrame =
 								ToCFrame(
 									Data.cframe
 								)
@@ -1323,7 +1475,7 @@ local function ApplyCrossRigBody(
 							local Relative =
 								AnchorCFrame:
 									ToObjectSpace(
-										SourceCF
+										SourceCFrame
 									)
 
 							Visual.CFrame =
@@ -1360,7 +1512,9 @@ local function ApplyCrossRigBody(
 								Visual
 						end
 
-						task.wait(0.04)
+						task.wait(
+							0.04
+						)
 					end
 				end
 			end
@@ -1371,8 +1525,7 @@ end
 local function ApplySavedBody(
 	Character,
 	Humanoid,
-	Avatar,
-	BundleApplied
+	Avatar
 )
 	local BodyData =
 		BuildBodyData(
@@ -1386,54 +1539,29 @@ local function ApplySavedBody(
 	local SourceRig =
 		Avatar.sourceRig
 
-	if not SourceRig then
-		if
-			type(Avatar.humanoid)
-				== "table"
-		then
-			SourceRig =
-				Avatar.humanoid.rigType
-		end
+	if
+		not SourceRig
+		and type(Avatar.humanoid)
+			== "table"
+	then
+		SourceRig =
+			Avatar.humanoid.rigType
 	end
 
 	local TargetRig =
 		Humanoid.RigType.Name
 
 	if SourceRig == TargetRig then
-		if not BundleApplied then
-			ApplySameRigBody(
-				Character,
-				BodyData
-			)
-		else
-			for Name, Data in pairs(
-				BodyData
-			) do
-				local Part =
-					Character:
-						FindFirstChild(
-							Name
-						)
-
-				if
-					Part
-					and Part:IsA(
-						"BasePart"
-					)
-				then
-					ApplyBodyProperties(
-						Part,
-						Data
-					)
-				end
-			end
-		end
+		ApplySameRigBody(
+			Character,
+			BodyData
+		)
 
 	elseif
 		SourceRig == "R15"
 		and TargetRig == "R6"
 	then
-		ApplyCrossRigBody(
+		ApplyR15BodyToR6(
 			Character,
 			BodyData
 		)
@@ -1463,7 +1591,8 @@ local function BuildSavedAttachmentMap(
 				if Attachment.name then
 					Result[
 						Attachment.name
-					] = Attachment
+					] =
+						Attachment
 				end
 			end
 		end
@@ -1516,7 +1645,7 @@ local function GetFallbackTargetPart(
 
 	if
 		Humanoid.RigType
-		== Enum.HumanoidRigType.R6
+			== Enum.HumanoidRigType.R6
 	then
 		Name =
 			SavedAttachment.targetR6
@@ -1551,7 +1680,10 @@ local function ApplyHandleAttachments(
 	Handle,
 	Attachments
 )
-	if type(Attachments) ~= "table" then
+	if
+		type(Attachments)
+			~= "table"
+	then
 		return
 	end
 
@@ -1770,15 +1902,15 @@ end
 local function CreateLayeredHandle(
 	HandleData
 )
-	local MeshData =
-		HandleData.mesh
-
 	local Handle
 
-	if type(MeshData) == "table" then
+	if
+		type(HandleData.mesh)
+			== "table"
+	then
 		Handle =
 			CreateMeshPart(
-				MeshData
+				HandleData.mesh
 			)
 	end
 
@@ -1874,35 +2006,36 @@ local function ManualWeldAccessory(
 		return true
 	end
 
-	local SavedAttachment =
+	local Saved =
 		SavedAttachmentMap[
 			HandleAttachment.Name
 		]
+
+	if not Saved then
+		return false
+	end
 
 	local TargetPart =
 		GetFallbackTargetPart(
 			Character,
 			Humanoid,
-			SavedAttachment
+			Saved
 		)
 
-	if
-		not TargetPart
-		or not SavedAttachment
-	then
+	if not TargetPart then
 		return false
 	end
 
-	local TargetCF =
-		SavedAttachment.cframe
-		and ToCFrame(
-			SavedAttachment.cframe
-		)
-		or CFrame.new()
+	local TargetCFrame =
+		Saved.cframe
+			and ToCFrame(
+				Saved.cframe
+			)
+			or CFrame.new()
 
 	Handle.CFrame =
 		TargetPart.CFrame
-		* TargetCF
+		* TargetCFrame
 		* HandleAttachment
 			.CFrame:Inverse()
 
@@ -1924,7 +2057,7 @@ local function ManualWeldAccessory(
 		HandleAttachment.CFrame
 
 	Weld.C1 =
-		TargetCF
+		TargetCFrame
 
 	Weld.Parent =
 		Handle
@@ -1997,9 +2130,10 @@ local function CreateAccessory(
 	if IsLayered then
 		local Added =
 			pcall(function()
-				Humanoid:AddAccessory(
-					Accessory
-				)
+				Humanoid:
+					AddAccessory(
+						Accessory
+					)
 			end)
 
 		if not Added then
@@ -2014,6 +2148,7 @@ local function CreateAccessory(
 				SavedAttachmentMap
 			)
 		end
+
 	else
 		Accessory.Parent =
 			Character
@@ -2036,7 +2171,9 @@ local function ApplyAccessories(
 	for _, Object in ipairs(
 		Character:GetChildren()
 	) do
-		if Object:IsA("Accessory") then
+		if Object:IsA(
+			"Accessory"
+		) then
 			Object:Destroy()
 		end
 	end
@@ -2078,7 +2215,9 @@ local function ApplyAccessories(
 		end
 
 		if Index % 2 == 0 then
-			task.wait(0.04)
+			task.wait(
+				0.04
+			)
 		end
 	end
 end
@@ -2256,7 +2395,9 @@ local function ApplyDecals(
 	for _, Existing in ipairs(
 		Character:GetDescendants()
 	) do
-		if Existing:IsA("Decal") then
+		if Existing:IsA(
+			"Decal"
+		) then
 			Existing:Destroy()
 		end
 	end
@@ -2291,7 +2432,7 @@ local function ApplyDecals(
 
 				if
 					Data.transparency
-						~= nil
+					~= nil
 				then
 					Decal.Transparency =
 						Data.transparency
@@ -2445,8 +2586,11 @@ local function ApplyAnimations(
 	end
 end
 
-local Applying = false
-local CurrentAvatarName = nil
+local Applying =
+	false
+
+local CurrentAvatarName =
+	nil
 
 local function ApplyAvatar(
 	AvatarName
@@ -2455,13 +2599,16 @@ local function ApplyAvatar(
 		return false
 	end
 
-	Applying = true
+	Applying =
+		true
 
 	local Data =
 		LoadData()
 
 	if not Data then
-		Applying = false
+		Applying =
+			false
+
 		return false
 	end
 
@@ -2483,7 +2630,9 @@ local function ApplyAvatar(
 		)
 
 	if not Avatar then
-		Applying = false
+		Applying =
+			false
+
 		return false
 	end
 
@@ -2508,7 +2657,9 @@ local function ApplyAvatar(
 	end
 
 	if not Humanoid then
-		Applying = false
+		Applying =
+			false
+
 		return false
 	end
 
@@ -2531,7 +2682,9 @@ local function ApplyAvatar(
 		)
 
 	if BundleApplied then
-		task.wait(0.35)
+		task.wait(
+			0.35
+		)
 
 		Character =
 			Player.Character
@@ -2548,16 +2701,26 @@ local function ApplyAvatar(
 			Humanoid,
 			Avatar
 		)
+
+		ForceHumanoidScales(
+			Humanoid,
+			Avatar
+		)
+
+	else
+		ApplySavedBody(
+			Character,
+			Humanoid,
+			Avatar
+		)
 	end
 
-	ApplySavedBody(
-		Character,
+	ApplyHumanoid(
 		Humanoid,
-		Avatar,
-		BundleApplied
+		Avatar
 	)
 
-	ApplyHumanoid(
+	ApplyHumanoidScales(
 		Humanoid,
 		Avatar
 	)
@@ -2589,7 +2752,13 @@ local function ApplyAvatar(
 		Avatar
 	)
 
-	Applying = false
+	ForceHumanoidScales(
+		Humanoid,
+		Avatar
+	)
+
+	Applying =
+		false
 
 	return true
 end
