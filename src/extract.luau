@@ -4,28 +4,23 @@ local CoreGui = game:GetService("CoreGui")
 
 local Player = Players.LocalPlayer
 
-local Base64Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+local Base64Chars =
+	"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
 local function Base64Encode(Data)
-	return (
-	(Data:gsub(".", function(Character)
+	return ((Data:gsub(".", function(Character)
 		local Byte = Character:byte()
 		local Bits = ""
 
 		for Index = 8, 1, -1 do
-			Bits = Bits
-			.. (
-			Byte % 2 ^ Index
-			- Byte % 2 ^ (Index - 1)
-			> 0
+			Bits ..=
+			Byte % 2 ^ Index - Byte % 2 ^ (Index - 1) > 0
 			and "1"
 			or "0"
-			)
 		end
 
 		return Bits
-	end) .. "0000")
-	:gsub("%d%d%d?%d?%d?%d?", function(Bits)
+	end) .. "0000"):gsub("%d%d%d?%d?%d?%d?", function(Bits)
 		if #Bits < 6 then
 			return ""
 		end
@@ -34,9 +29,7 @@ local function Base64Encode(Data)
 
 		for Index = 1, 6 do
 			if Bits:sub(Index, Index) == "1" then
-				Value =
-					Value
-					+ 2 ^ (6 - Index)
+				Value += 2 ^ (6 - Index)
 			end
 		end
 
@@ -44,27 +37,11 @@ local function Base64Encode(Data)
 			Value + 1,
 			Value + 1
 		)
-	end)
-	.. ({
+	end) .. ({
 		"",
 		"==",
 		"="
-	})[#Data % 3 + 1]
-	)
-end
-
-local function AssetId(Value)
-	if not Value then
-		return 0
-	end
-
-	if type(Value) == "number" then
-		return Value
-	end
-
-	return tonumber(
-		tostring(Value):match("%d+")
-	) or 0
+	})[#Data % 3 + 1])
 end
 
 local function CFrameToTable(Value)
@@ -81,43 +58,23 @@ local function VectorToTable(Value)
 	}
 end
 
-local function AddCatalogItem(List, ID)
-	ID = AssetId(ID)
-
-	if ID <= 0 then
-		return
-	end
-
-	table.insert(List, {
-		type = "catalog",
-		data = Base64Encode(
-			tostring(ID)
-		)
-	})
+local function ColorToTable(Value)
+	return {
+		Value.R,
+		Value.G,
+		Value.B
+	}
 end
 
-local function ParseAccessoryList(List, Value)
-	if not Value or Value == "" then
-		return 0
-	end
-
-	local Count = 0
-
-	for ID in tostring(Value):gmatch("%d+") do
-		AddCatalogItem(
-			List,
-			tonumber(ID)
-		)
-
-		Count = Count + 1
-	end
-
-	return Count
+local function EncodeData(Data)
+	return Base64Encode(
+		HttpService:JSONEncode(Data)
+	)
 end
 
-local function GetDescriptionValue(Description, Property)
+local function GetProperty(Object, Property)
 	local Success, Value = pcall(function()
-		return Description[Property]
+		return Object[Property]
 	end)
 
 	if Success then
@@ -127,292 +84,597 @@ local function GetDescriptionValue(Description, Property)
 	return nil
 end
 
-local function ExtractRawAccessory(Accessory)
+local function GetPossibleAssetId(Object)
+	local Properties = {
+		"SourceAssetId",
+		"AssetId"
+	}
+
+	for _, Property in ipairs(Properties) do
+		local Value = GetProperty(
+			Object,
+			Property
+		)
+
+		if type(Value) == "number" and Value > 0 then
+			return Value
+		end
+	end
+
+	return nil
+end
+
+local function ExtractAttachment(Attachment)
+	return {
+		name = Attachment.Name,
+		cframe = CFrameToTable(
+			Attachment.CFrame
+		),
+		position = VectorToTable(
+			Attachment.Position
+		),
+		orientation = VectorToTable(
+			Attachment.Orientation
+		)
+	}
+end
+
+local function ExtractAttachments(Object)
+	local Result = {}
+
+	for _, Child in ipairs(Object:GetChildren()) do
+		if Child:IsA("Attachment") then
+			table.insert(
+				Result,
+				ExtractAttachment(Child)
+			)
+		end
+	end
+
+	return Result
+end
+
+local function ExtractMesh(BasePart)
+	local Data = {}
+
+	if BasePart:IsA("MeshPart") then
+		Data.meshType = "MeshPart"
+		Data.meshId = BasePart.MeshId
+		Data.textureId = BasePart.TextureID
+
+		local RenderFidelity = GetProperty(
+			BasePart,
+			"RenderFidelity"
+		)
+
+		if RenderFidelity then
+			Data.renderFidelity =
+				RenderFidelity.Name
+		end
+
+		local DoubleSided = GetProperty(
+			BasePart,
+			"DoubleSided"
+		)
+
+		if DoubleSided ~= nil then
+			Data.doubleSided = DoubleSided
+		end
+
+		return Data
+	end
+
+	local SpecialMesh =
+		BasePart:FindFirstChildOfClass("SpecialMesh")
+
+	if SpecialMesh then
+		Data.meshType = "SpecialMesh"
+		Data.meshId = SpecialMesh.MeshId
+		Data.textureId = SpecialMesh.TextureId
+		Data.scale = VectorToTable(
+			SpecialMesh.Scale
+		)
+		Data.offset = VectorToTable(
+			SpecialMesh.Offset
+		)
+		Data.vertexColor = VectorToTable(
+			SpecialMesh.VertexColor
+		)
+		Data.meshEnum = SpecialMesh.MeshType.Name
+
+		return Data
+	end
+
+	Data.meshType = "Part"
+
+	return Data
+end
+
+local function ExtractWeld(Weld)
+	local Data = {
+		name = Weld.Name
+	}
+
+	if Weld.Part0 then
+		Data.part0 = Weld.Part0.Name
+	end
+
+	if Weld.Part1 then
+		Data.part1 = Weld.Part1.Name
+	end
+
+	if Weld:IsA("Weld") then
+		Data.c0 = CFrameToTable(Weld.C0)
+		Data.c1 = CFrameToTable(Weld.C1)
+
+	elseif Weld:IsA("Motor6D") then
+		Data.c0 = CFrameToTable(Weld.C0)
+		Data.c1 = CFrameToTable(Weld.C1)
+		Data.transform =
+			CFrameToTable(Weld.Transform)
+
+	elseif Weld:IsA("WeldConstraint") then
+		Data.weldConstraint = true
+	end
+
+	return Data
+end
+
+local function ExtractAccessory(Accessory)
+	local Data = {
+		name = Accessory.Name,
+		className = Accessory.ClassName,
+		accessoryType = Accessory.AccessoryType.Name
+	}
+
+	local PossibleId =
+		GetPossibleAssetId(Accessory)
+
+	if PossibleId then
+		Data.avatarItemId = PossibleId
+	end
+
 	local Handle =
 		Accessory:FindFirstChild("Handle")
 
 	if not Handle or not Handle:IsA("BasePart") then
-		return nil
+		return Data
 	end
 
-	local MeshId
-	local TextureId
+	local HandleId =
+		GetPossibleAssetId(Handle)
 
-	if Handle:IsA("MeshPart") then
-		MeshId = Handle.MeshId
-		TextureId = Handle.TextureID
-	else
-		local Mesh =
-			Handle:FindFirstChildOfClass("SpecialMesh")
-
-		if Mesh then
-			MeshId = Mesh.MeshId
-			TextureId = Mesh.TextureId
-		end
+	if not Data.avatarItemId and HandleId then
+		Data.avatarItemId = HandleId
 	end
 
-	if not MeshId or MeshId == "" then
-		return nil
-	end
+	Data.handle = {
+		className = Handle.ClassName,
 
-	local Data = {
-		name = Accessory.Name,
-		meshId = MeshId,
-		textureId = TextureId or "",
-		size = VectorToTable(Handle.Size)
+		size = VectorToTable(
+			Handle.Size
+		),
+
+		cframe = CFrameToTable(
+			Handle.CFrame
+		),
+
+		color = ColorToTable(
+			Handle.Color
+		),
+
+		transparency =
+		Handle.Transparency,
+
+		reflectance =
+		Handle.Reflectance,
+
+		material =
+		Handle.Material.Name,
+
+		canCollide =
+		Handle.CanCollide,
+
+		canTouch =
+		Handle.CanTouch,
+
+		canQuery =
+		Handle.CanQuery,
+
+		massless =
+		Handle.Massless,
+
+		mesh =
+		ExtractMesh(Handle),
+
+		attachments =
+		ExtractAttachments(Handle),
+
+		welds = {}
 	}
 
-	local Attachment =
-		Handle:FindFirstChildOfClass("Attachment")
-
-	if Attachment then
-		Data.attachment = Attachment.Name
-		Data.attachmentCFrame =
-			CFrameToTable(Attachment.CFrame)
+	for _, Child in ipairs(Handle:GetChildren()) do
+		if
+		Child:IsA("Weld")
+		or Child:IsA("Motor6D")
+		or Child:IsA("WeldConstraint")
+		then
+			table.insert(
+				Data.handle.welds,
+				ExtractWeld(Child)
+			)
+		end
 	end
 
-	local Weld =
-		Handle:FindFirstChild("AccessoryWeld")
+	return Data
+end
 
-	if Weld and Weld:IsA("Weld") then
-		Data.handleCFrame =
-			CFrameToTable(Weld.C0)
+local function ExtractBodyPart(Part)
+	local Data = {
+		name = Part.Name,
+		className = Part.ClassName,
 
-		Data.targetCFrame =
-			CFrameToTable(Weld.C1)
+		size = VectorToTable(
+			Part.Size
+		),
 
-		if Weld.Part1 then
-			Data.targetPart =
-				Weld.Part1.Name
+		cframe = CFrameToTable(
+			Part.CFrame
+		),
+
+		color = ColorToTable(
+			Part.Color
+		),
+
+		transparency =
+		Part.Transparency,
+
+		material =
+		Part.Material.Name,
+
+		reflectance =
+		Part.Reflectance,
+
+		mesh =
+		ExtractMesh(Part),
+
+		attachments =
+		ExtractAttachments(Part),
+
+		joints = {}
+	}
+
+	local PossibleId =
+		GetPossibleAssetId(Part)
+
+	if PossibleId then
+		Data.avatarItemId = PossibleId
+	end
+
+	for _, Child in ipairs(Part:GetChildren()) do
+		if
+		Child:IsA("Motor6D")
+		or Child:IsA("Weld")
+		or Child:IsA("WeldConstraint")
+		then
+			table.insert(
+				Data.joints,
+				ExtractWeld(Child)
+			)
 		end
+	end
+
+	return Data
+end
+
+local function ExtractAnimations(Character)
+	local Result = {}
+
+	for _, Object in ipairs(Character:GetDescendants()) do
+		if Object:IsA("Animation") then
+			table.insert(Result, {
+				name = Object.Name,
+
+				parent =
+				Object.Parent
+				and Object.Parent.Name
+				or "",
+
+				animationId =
+				Object.AnimationId
+			})
+		end
+	end
+
+	return Result
+end
+
+local function ExtractPlayingAnimations(Humanoid)
+	local Result = {}
+
+	local Animator =
+		Humanoid:FindFirstChildOfClass("Animator")
+
+	if not Animator then
+		return Result
+	end
+
+	for _, Track in ipairs(
+		Animator:GetPlayingAnimationTracks()
+	) do
+		local Animation = Track.Animation
+
+		table.insert(Result, {
+			animationId =
+			Animation
+			and Animation.AnimationId
+			or "",
+
+			name = Track.Name,
+
+			priority =
+			Track.Priority.Name,
+
+			speed = Track.Speed,
+
+			timePosition =
+			Track.TimePosition,
+
+			weight =
+			Track.WeightCurrent,
+
+			looped =
+			Track.Looped
+		})
+	end
+
+	return Result
+end
+
+local function ExtractClothing(Character)
+	local Result = {}
+
+	for _, Object in ipairs(Character:GetChildren()) do
+		if Object:IsA("Shirt") then
+			Result.shirt = {
+				name = Object.Name,
+				texture = Object.ShirtTemplate
+			}
+
+		elseif Object:IsA("Pants") then
+			Result.pants = {
+				name = Object.Name,
+				texture = Object.PantsTemplate
+			}
+
+		elseif Object:IsA("ShirtGraphic") then
+			Result.tshirt = {
+				name = Object.Name,
+				texture = Object.Graphic
+			}
+		end
+	end
+
+	return Result
+end
+
+local function ExtractDecals(Character)
+	local Result = {}
+
+	for _, Object in ipairs(Character:GetDescendants()) do
+		if Object:IsA("Decal") then
+			table.insert(Result, {
+				name = Object.Name,
+
+				parent =
+				Object.Parent
+				and Object.Parent.Name
+				or "",
+
+				texture =
+				Object.Texture,
+
+				face =
+				Object.Face.Name,
+
+				transparency =
+				Object.Transparency,
+
+				color =
+				ColorToTable(
+					Object.Color3
+				)
+			})
+		end
+	end
+
+	return Result
+end
+
+local function ExtractBodyColors(Character)
+	local BodyColors =
+		Character:FindFirstChildOfClass(
+			"BodyColors"
+		)
+
+	if not BodyColors then
+		return nil
 	end
 
 	return {
-		type = "raw",
+		head =
+		ColorToTable(
+			BodyColors.HeadColor3
+		),
 
-		data = Base64Encode(
-			HttpService:JSONEncode(Data)
+		leftArm =
+		ColorToTable(
+			BodyColors.LeftArmColor3
+		),
+
+		rightArm =
+		ColorToTable(
+			BodyColors.RightArmColor3
+		),
+
+		leftLeg =
+		ColorToTable(
+			BodyColors.LeftLegColor3
+		),
+
+		rightLeg =
+		ColorToTable(
+			BodyColors.RightLegColor3
+		),
+
+		torso =
+		ColorToTable(
+			BodyColors.TorsoColor3
 		)
 	}
 end
 
-local Character =
-	Player.Character
-	or Player.CharacterAdded:Wait()
+local function ExtractHumanoid(Humanoid)
+	return {
+		rigType =
+		Humanoid.RigType.Name,
 
-local Humanoid =
-	Character:WaitForChild("Humanoid")
+		walkSpeed =
+		Humanoid.WalkSpeed,
 
-local Description
+		jumpPower =
+		Humanoid.JumpPower,
 
-local Success = pcall(function()
-	Description =
-		Humanoid:GetAppliedDescription()
-end)
+		jumpHeight =
+		Humanoid.JumpHeight,
 
-if not Success or not Description then
-	Description = Instance.new("HumanoidDescription")
-end
+		useJumpPower =
+		Humanoid.UseJumpPower,
 
-local Output = {
-	selected = "Extracted",
+		hipHeight =
+		Humanoid.HipHeight,
 
-	avatars = {
-		Extracted = {
-			items = {},
+		autoRotate =
+		Humanoid.AutoRotate,
 
-			body = {},
-			clothing = {},
-			animations = {},
-			scales = {}
-		}
+		maxHealth =
+		Humanoid.MaxHealth,
+
+		health =
+		Humanoid.Health,
+
+		nameDisplayDistance =
+		Humanoid.NameDisplayDistance,
+
+		healthDisplayDistance =
+		Humanoid.HealthDisplayDistance,
+
+		displayName =
+		Humanoid.DisplayName
 	}
-}
-
-local Avatar =
-	Output.avatars.Extracted
-
-local AccessoryProperties = {
-	"HatAccessory",
-	"HairAccessory",
-	"FaceAccessory",
-	"NeckAccessory",
-	"ShouldersAccessory",
-	"FrontAccessory",
-	"BackAccessory",
-	"WaistAccessory",
-
-	"TShirtAccessory",
-	"ShirtAccessory",
-	"PantsAccessory",
-	"JacketAccessory",
-	"SweaterAccessory",
-	"ShortsAccessory",
-	"LeftShoeAccessory",
-	"RightShoeAccessory",
-	"DressSkirtAccessory"
-}
-
-local AccessoryIdCount = 0
-
-for _, Property in ipairs(AccessoryProperties) do
-	local Value =
-		GetDescriptionValue(
-			Description,
-			Property
-		)
-
-	AccessoryIdCount =
-		AccessoryIdCount
-		+ ParseAccessoryList(
-			Avatar.items,
-			Value
-		)
 end
 
-local BodyProperties = {
-	"Head",
-	"Torso",
-	"LeftArm",
-	"RightArm",
-	"LeftLeg",
-	"RightLeg"
-}
+local function ExtractCharacter()
+	local Character = Player.Character
 
-for _, Property in ipairs(BodyProperties) do
-	local Value =
-		AssetId(
-			GetDescriptionValue(
-				Description,
-				Property
-			)
-		)
-
-	if Value > 0 then
-		Avatar.body[Property] = Value
+	if not Character then
+		return "{}"
 	end
-end
 
-local ClothingProperties = {
-	"Shirt",
-	"Pants",
-	"GraphicTShirt",
-	"Face"
-}
-
-for _, Property in ipairs(ClothingProperties) do
-	local Value =
-		AssetId(
-			GetDescriptionValue(
-				Description,
-				Property
-			)
+	local Humanoid =
+		Character:FindFirstChildOfClass(
+			"Humanoid"
 		)
 
-	if Value > 0 then
-		Avatar.clothing[Property] = Value
+	if not Humanoid then
+		return "{}"
 	end
-end
 
-local AnimationProperties = {
-	"ClimbAnimation",
-	"FallAnimation",
-	"IdleAnimation",
-	"JumpAnimation",
-	"RunAnimation",
-	"SwimAnimation",
-	"WalkAnimation"
-}
+	local Avatar = {
+		version = 2,
+		source = "character",
+		name = Character.Name,
 
-for _, Property in ipairs(AnimationProperties) do
-	local Value =
-		AssetId(
-			GetDescriptionValue(
-				Description,
-				Property
-			)
-		)
+		accessories = {},
+		bodyParts = {},
 
-	if Value > 0 then
-		Avatar.animations[Property] = Value
-	end
-end
+		clothing =
+		ExtractClothing(Character),
 
-local ScaleProperties = {
-	"HeightScale",
-	"WidthScale",
-	"DepthScale",
-	"HeadScale",
-	"BodyTypeScale",
-	"ProportionScale"
-}
+		decals =
+		ExtractDecals(Character),
 
-for _, Property in ipairs(ScaleProperties) do
-	local Value =
-		GetDescriptionValue(
-			Description,
-			Property
-		)
+		animations =
+		ExtractAnimations(Character),
 
-	if type(Value) == "number" then
-		Avatar.scales[Property] =
-			Value
-	end
-end
+		playingAnimations =
+		ExtractPlayingAnimations(
+			Humanoid
+		),
 
-if AccessoryIdCount == 0 then
-	for _, Object in ipairs(Character:GetChildren()) do
+		bodyColors =
+		ExtractBodyColors(Character),
+
+		humanoid =
+		ExtractHumanoid(Humanoid)
+	}
+
+	for _, Object in ipairs(
+		Character:GetChildren()
+	) do
 		if Object:IsA("Accessory") then
-			local Raw =
-				ExtractRawAccessory(
-					Object
-				)
+			local Data =
+				ExtractAccessory(Object)
 
-			if Raw then
-				table.insert(
-					Avatar.items,
-					Raw
-				)
-			end
+			table.insert(
+				Avatar.accessories,
+				{
+					type = "actualAccessory",
+					data = EncodeData(Data)
+				}
+			)
+
+		elseif Object:IsA("BasePart") then
+			local Data =
+				ExtractBodyPart(Object)
+
+			table.insert(
+				Avatar.bodyParts,
+				{
+					type = "actualBodyPart",
+					data = EncodeData(Data)
+				}
+			)
 		end
 	end
+
+	return HttpService:JSONEncode({
+		selected = "Extracted",
+
+		avatars = {
+			Extracted = Avatar
+		}
+	})
 end
 
-local Animate =
-	Character:FindFirstChild("Animate")
+local PlayerGui =
+	Player:WaitForChild("PlayerGui")
 
-if Animate then
-	Avatar.runtimeAnimations = {}
+local OldGui =
+	CoreGui:FindFirstChild(
+		"AvatarExtractor"
+	)
+	or PlayerGui:FindFirstChild(
+		"AvatarExtractor"
+	)
 
-	for _, Object in ipairs(Animate:GetDescendants()) do
-		if Object:IsA("Animation") then
-			local ID =
-				AssetId(
-					Object.AnimationId
-				)
-
-			if ID > 0 then
-				local Key = Object.Name
-
-				if
-				Avatar.runtimeAnimations[Key]
-				~= nil
-				and Object.Parent
-				then
-					Key =
-						Object.Parent.Name
-						.. "_"
-						.. Object.Name
-				end
-
-				Avatar.runtimeAnimations[Key] =
-					ID
-			end
-		end
-	end
+if OldGui then
+	OldGui:Destroy()
 end
 
-local Gui = Instance.new("ScreenGui")
+local Gui =
+	Instance.new("ScreenGui")
+
 Gui.Name = "AvatarExtractor"
 Gui.ResetOnSpawn = false
 Gui.IgnoreGuiInset = true
@@ -422,35 +684,66 @@ pcall(function()
 end)
 
 if not Gui.Parent then
-	Gui.Parent =
-		Player:WaitForChild("PlayerGui")
+	Gui.Parent = PlayerGui
 end
 
-local TextBox = Instance.new("TextBox")
-TextBox.Name = "Output"
-TextBox.AnchorPoint =
+local Container =
+	Instance.new("Frame")
+
+Container.Name = "Container"
+Container.AnchorPoint =
 	Vector2.new(0.5, 0.5)
 
-TextBox.Position =
+Container.Position =
 	UDim2.fromScale(0.5, 0.5)
 
+Container.Size =
+	UDim2.fromOffset(
+		720,
+		470
+	)
+
+Container.BackgroundTransparency = 1
+Container.Parent = Gui
+
+local TextBox =
+	Instance.new("TextBox")
+
+TextBox.Name = "Output"
+
+TextBox.Position =
+	UDim2.fromOffset(
+		0,
+		0
+	)
+
 TextBox.Size =
-	UDim2.fromOffset(700, 400)
+	UDim2.new(
+		1,
+		0,
+		1,
+		-50
+	)
 
 TextBox.BackgroundColor3 =
-	Color3.fromRGB(20, 20, 20)
+	Color3.fromRGB(
+		20,
+		20,
+		20
+	)
 
 TextBox.TextColor3 =
-	Color3.fromRGB(235, 235, 235)
-
-TextBox.PlaceholderColor3 =
-	Color3.fromRGB(130, 130, 130)
+	Color3.fromRGB(
+		235,
+		235,
+		235
+	)
 
 TextBox.BorderSizePixel = 0
-
 TextBox.ClearTextOnFocus = false
 TextBox.MultiLine = true
 TextBox.TextWrapped = false
+
 TextBox.TextXAlignment =
 	Enum.TextXAlignment.Left
 
@@ -462,10 +755,7 @@ TextBox.Font =
 
 TextBox.TextSize = 15
 
-TextBox.Text =
-	HttpService:JSONEncode(Output)
-
-TextBox.Parent = Gui
+TextBox.Parent = Container
 
 local Corner =
 	Instance.new("UICorner")
@@ -473,8 +763,7 @@ local Corner =
 Corner.CornerRadius =
 	UDim.new(0, 8)
 
-Corner.Parent =
-	TextBox
+Corner.Parent = TextBox
 
 local Padding =
 	Instance.new("UIPadding")
@@ -491,9 +780,84 @@ Padding.PaddingLeft =
 Padding.PaddingRight =
 	UDim.new(0, 12)
 
-Padding.Parent =
-	TextBox
+Padding.Parent = TextBox
 
-TextBox:CaptureFocus()
-TextBox.CursorPosition =
-	#TextBox.Text + 1
+local Refresh =
+	Instance.new("TextButton")
+
+Refresh.Name = "Refresh"
+
+Refresh.AnchorPoint =
+	Vector2.new(0.5, 1)
+
+Refresh.Position =
+	UDim2.new(
+		0.5,
+		0,
+		1,
+		0
+	)
+
+Refresh.Size =
+	UDim2.fromOffset(
+		140,
+		38
+	)
+
+Refresh.BackgroundColor3 =
+	Color3.fromRGB(
+		35,
+		35,
+		35
+	)
+
+Refresh.TextColor3 =
+	Color3.fromRGB(
+		235,
+		235,
+		235
+	)
+
+Refresh.BorderSizePixel = 0
+Refresh.Font = Enum.Font.GothamMedium
+Refresh.TextSize = 14
+Refresh.Text = "Refresh"
+
+Refresh.Parent = Container
+
+local RefreshCorner =
+	Instance.new("UICorner")
+
+RefreshCorner.CornerRadius =
+	UDim.new(0, 8)
+
+RefreshCorner.Parent =
+	Refresh
+
+local function RefreshAvatar()
+	TextBox.Text =
+		ExtractCharacter()
+
+	TextBox.CursorPosition =
+		#TextBox.Text + 1
+end
+
+Refresh.MouseButton1Click:Connect(
+	function()
+		RefreshAvatar()
+	end
+)
+
+Player.CharacterAdded:Connect(
+	function(Character)
+		Character:WaitForChild(
+			"Humanoid"
+		)
+
+		task.wait()
+
+		RefreshAvatar()
+	end
+)
+
+RefreshAvatar()
