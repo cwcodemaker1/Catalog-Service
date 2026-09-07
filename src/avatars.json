@@ -1,0 +1,48 @@
+{
+  "selected": "Main",
+  "avatars": {
+    "Main": {
+      "items": [
+        {
+          "type": "catalog",
+          "data": "MTIzNDU2Nzg5"
+        }
+      ],
+
+      "body": {
+        "Head": 0,
+        "Torso": 0,
+        "LeftArm": 0,
+        "RightArm": 0,
+        "LeftLeg": 0,
+        "RightLeg": 0
+      },
+
+      "clothing": {
+        "Shirt": 0,
+        "Pants": 0,
+        "GraphicTShirt": 0,
+        "Face": 0
+      },
+
+      "animations": {
+        "ClimbAnimation": 0,
+        "FallAnimation": 0,
+        "IdleAnimation": 0,
+        "JumpAnimation": 0,
+        "RunAnimation": 0,
+        "SwimAnimation": 0,
+        "WalkAnimation": 0
+      },
+
+      "scales": {
+        "HeightScale": 1,
+        "WidthScale": 1,
+        "DepthScale": 1,
+        "HeadScale": 1,
+        "BodyTypeScale": 0,
+        "ProportionScale": 0
+      }
+    }
+  }
+}
